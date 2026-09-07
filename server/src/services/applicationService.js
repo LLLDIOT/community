@@ -118,6 +118,7 @@ export function listApplicationsByPosition(positionId, { page = 1, pageSize = 50
 /**
  * 社团简历库（= 按类型/状态筛选的归档总视图）
  * filters: typeTag / status / grade / keyword / positionId / recruitmentId
+ * 返回含 statusCounts：忽略 status 过滤的全体状态分布（用于前端统计条）
  */
 export function listClubApplications(
   clubId,
@@ -126,6 +127,7 @@ export function listClubApplications(
   db.prepare('SELECT id FROM club WHERE id = ?').get(clubId) ||
     (() => { throw notFound('社团不存在'); })();
 
+  const baseParams = { clubId };
   const where = ['rec.club_id = @clubId'];
   const params = { clubId };
 
@@ -171,7 +173,32 @@ export function listClubApplications(
     )
     .all({ ...params, pageSize, offset: (page - 1) * pageSize });
 
-  return { list, total, page, pageSize };
+  // 状态分布：忽略 status 过滤（其余筛选保持一致）
+  const countParams = { ...baseParams };
+  const countWhere = ['rec.club_id = @clubId'];
+  if (typeTag) { countWhere.push('app.type_tag = @typeTag'); countParams.typeTag = typeTag; }
+  if (grade) { countWhere.push('res.grade = @grade'); countParams.grade = grade; }
+  if (positionId) { countWhere.push('app.position_id = @positionId'); countParams.positionId = positionId; }
+  if (recruitmentId) { countWhere.push('pos.recruitment_id = @recruitmentId'); countParams.recruitmentId = recruitmentId; }
+  if (keyword) {
+    countWhere.push('(res.student_name LIKE @kw OR res.major LIKE @kw OR res.school LIKE @kw)');
+    countParams.kw = `%${keyword}%`;
+  }
+  const statusCounts = db
+    .prepare(
+      `SELECT app.status, COUNT(*) AS c FROM application app
+       JOIN position pos ON pos.id = app.position_id
+       JOIN recruitment rec ON rec.id = pos.recruitment_id
+       JOIN resume res ON res.id = app.resume_id
+       WHERE ${countWhere.join(' AND ')}
+       GROUP BY app.status`
+    )
+    .all(countParams);
+
+  return {
+    list, total, page, pageSize,
+    statusCounts: Object.fromEntries(statusCounts.map((r) => [r.status, r.c])),
+  };
 }
 
 /** 状态流转 */
