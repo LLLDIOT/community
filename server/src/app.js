@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import clubRoutes from './routes/clubRoutes.js';
@@ -42,6 +43,16 @@ export function createApp() {
       },
     });
   });
+
+  // 生产模式：若存在 web/dist（已构建前端），则由后端单端口托管（SPA fallback）
+  const webDist = path.resolve(__dirname, '../../web/dist');
+  if (fs.existsSync(path.join(webDist, 'index.html'))) {
+    app.use(express.static(webDist));
+    app.get(/^\/(?!api|uploads|healthz).*/, (req, res) => {
+      res.sendFile(path.join(webDist, 'index.html'));
+    });
+    console.log('[web] serving built frontend from web/dist');
+  }
 
   // 404
   app.use((req, res) => {

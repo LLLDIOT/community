@@ -1,0 +1,14 @@
+services:
+  community:
+    build: .
+    container_name: community
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    volumes:
+      # 持久化 SQLite 数据库与上传的简历附件
+      - ./server/data:/app/server/data
+      - ./server/uploads:/app/server/uploads
+    restart: unless-stopped

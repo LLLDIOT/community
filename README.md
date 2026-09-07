@@ -13,9 +13,12 @@ community/
 ├─ docs/
 │  ├─ ARCHITECTURE.md   # 架构设计与里程碑
 │  ├─ DATA_MODEL.md     # 数据模型 + SQL DDL
-│  └─ API.md            # REST API 设计
-├─ server/              # Express API（开发中 M1-M2）
-├─ web/                 # Vue3 前端（规划中 M3-M4）
+│  ├─ API.md            # REST API 设计
+│  └─ DEPLOY.md         # 部署指南
+├─ server/              # Express API（M1-M2 ✅）
+├─ web/                 # Vue3 前端（M3-M4 ✅）
+├─ Dockerfile           # 多阶段构建（前端 + 后端）
+├─ docker-compose.yml   # 一键部署
 ├─ README.md
 └─ LICENSE              # MIT
 ```
@@ -39,13 +42,25 @@ npm install
 npm run dev        # http://localhost:5173（已配置 /api 代理到 3000）
 ```
 
+### 生产模式 / Docker
+```bash
+# 方式一：单端口（先构建前端，后端自动托管）
+cd web && npm run build && cd ../server && npm install && node src/index.js
+# → http://localhost:3000
+
+# 方式二：Docker（推荐）
+docker compose up -d --build
+# → http://localhost:3000
+```
+详见 [docs/DEPLOY.md](docs/DEPLOY.md)。
+
 ### 冒烟测试
 ```bash
 curl http://localhost:3000/api/v1/clubs
 curl http://localhost:3000/healthz
 ```
 
-### 页面入口（浏览器打开 http://localhost:5173）
+### 页面入口（浏览器打开 http://localhost:5173 开发 / :3000 生产）
 - `/clubs` —— 社团列表（新建/进入管理）
 - `/clubs/:id` —— 社团详情：资料编辑 + 招新批次 + 岗位需求管理
 - `/applications` —— 简历库：按社团/批次/岗位/类型/状态筛选、状态流转、评分备注、归档、CSV 导出
@@ -59,5 +74,5 @@ curl http://localhost:3000/healthz
 | M2 简历上传 + 投递 + 状态机 | ✅ |
 | M3 前端社团资料与招新管理 | ✅ |
 | M4 前端简历库归档/筛选 | ✅ |
-| M5 认证权限（JWT） | ⬜ |
-| M6 导出/部署 | ⬜（导出已完成，部署待做） |
+| M5 认证权限（JWT） | ⏸ 暂缓（上线前必须启用） |
+| M6 导出 / Docker / 部署文档 | ✅ |
