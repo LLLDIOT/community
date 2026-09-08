@@ -12,6 +12,7 @@ import dashboardRoutes from './routes/dashboardRoutes.js';
 import matchRoutes from './routes/matchRoutes.js';
 import { BizError } from './utils/errors.js';
 import * as applicationService from './services/applicationService.js';
+import { basicAuth } from './middlewares/basicAuth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -19,6 +20,9 @@ export function createApp() {
   const app = express();
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+
+  // 访问保护（公网 Basic Auth）：必须在一切业务路由/静态文件之前
+  app.use(basicAuth());
 
   // 简历附件静态目录（uploads 与 data 同级：server/uploads）
   const uploadsDir = path.resolve(__dirname, '../uploads');
