@@ -2,6 +2,19 @@
 
 三种运行方式，按场景选择：
 
+## 0. 当前部署状态（本机 Windows）
+
+- 已注册开机自启计划任务（登录 Windows 自动运行）：
+  - `Community-Server` —— 后端 node 服务（:3000）
+  - `Community-Cpolar` —— cpolar 公网隧道
+- 注册命令见 `scripts/install-services.ps1`（node 部分）；
+  cpolar 隧道配置位于 `~/.cpolar/cpolar.yml`（community → :3000）。
+- 公网访问受 **HTTP Basic Auth** 保护，凭据在 `server/.env`
+  （`BASIC_AUTH_USER` / `BASIC_AUTH_PASS`），该文件不入库。
+- 免费版 cpolar 公网域名是**随机的**，重启隧道后变化；
+  查看当前地址：`Get-Content "$env:USERPROFILE\.cpolar\run.log*" | Select-String "established"`
+  固定域名需在 cpolar 控制台购买保留域名。
+
 ## 1. 本地开发（前后端分离，热更新）
 
 ```bash
