@@ -8,6 +8,8 @@ import recruitmentRoutes from './routes/recruitmentRoutes.js';
 import positionRoutes from './routes/positionRoutes.js';
 import resumeRoutes from './routes/resumeRoutes.js';
 import applicationRoutes from './routes/applicationRoutes.js';
+import dashboardRoutes from './routes/dashboardRoutes.js';
+import matchRoutes from './routes/matchRoutes.js';
 import { BizError } from './utils/errors.js';
 import * as applicationService from './services/applicationService.js';
 
@@ -31,6 +33,8 @@ export function createApp() {
   app.use('/api/v1', positionRoutes);
   app.use('/api/v1/resumes', resumeRoutes);
   app.use('/api/v1', applicationRoutes);
+  app.use('/api/v1', dashboardRoutes);
+  app.use('/api/v1', matchRoutes);
 
   // 业务字典：类型标签与状态
   app.get('/api/v1/dict', (req, res) => {

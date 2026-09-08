@@ -73,10 +73,23 @@
 
           <!-- 岗位列表 -->
           <el-table :data="rec.positions" size="small" class="pos-table">
-            <el-table-column label="招新岗位（需求）" min-width="160">
+            <el-table-column label="招新岗位（需求）" min-width="150">
               <template #default="{ row }">
                 <span class="pos-title">{{ row.title }}</span>
                 <div class="pos-req" v-if="row.requirement">{{ row.requirement }}</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="期望技能" min-width="160">
+              <template #default="{ row }">
+                <el-tag
+                  v-for="s in splitSkills(row.required_skills)"
+                  :key="s"
+                  size="small"
+                  type="warning"
+                  effect="plain"
+                  style="margin-right: 4px"
+                >{{ s }}</el-tag>
+                <span v-if="!row.required_skills" class="muted">未设置</span>
               </template>
             </el-table-column>
             <el-table-column label="需求人数" width="120" align="center">
@@ -139,9 +152,13 @@
     </el-dialog>
 
     <!-- 岗位弹窗 -->
-    <el-dialog v-model="posDialog.visible" :title="posDialog.isEdit ? '编辑岗位需求' : '添加岗位需求'" width="500px">
+    <el-dialog v-model="posDialog.visible" :title="posDialog.isEdit ? '编辑岗位需求' : '添加岗位需求'" width="520px">
       <el-form label-width="90px">
         <el-form-item label="岗位名称"><el-input v-model="posForm.title" placeholder="如：前端开发干事" /></el-form-item>
+        <el-form-item label="期望技能">
+          <el-input v-model="posForm.requiredSkills" placeholder="逗号分隔，如：Vue,Node.js,沟通 —— 用于智能匹配简历" />
+          <div class="form-hint">技能标签用于简历智能匹配（例：Vue, 设计, 活动组织）</div>
+        </el-form-item>
         <el-form-item label="需求说明"><el-input v-model="posForm.requirement" type="textarea" :rows="3" placeholder="需要具备哪些能力 / 承担什么工作…" /></el-form-item>
         <el-form-item label="招新人数"><el-input-number v-model="posForm.headcount" :min="1" /></el-form-item>
       </el-form>
@@ -259,15 +276,24 @@ async function removeRec(rec) {
 
 /* ---- 岗位 ---- */
 const posDialog = reactive({ visible: false, isEdit: false, id: null, recId: null });
-const posForm = reactive({ title: '', requirement: '', headcount: 1 });
+const posForm = reactive({ title: '', requirement: '', headcount: 1, requiredSkills: '' });
+
+/** 逗号分隔技能 → 标签数组（展示用） */
+function splitSkills(raw) {
+  if (!raw) return [];
+  return String(raw).split(/[,，、;；]/).map((s) => s.trim()).filter(Boolean);
+}
 
 function openPosDialog(rec, pos) {
   if (pos) {
-    Object.assign(posForm, { title: pos.title, requirement: pos.requirement, headcount: pos.headcount });
+    Object.assign(posForm, {
+      title: pos.title, requirement: pos.requirement,
+      headcount: pos.headcount, requiredSkills: pos.required_skills || '',
+    });
     posDialog.isEdit = true;
     posDialog.id = pos.id;
   } else {
-    Object.assign(posForm, { title: '', requirement: '', headcount: 1 });
+    Object.assign(posForm, { title: '', requirement: '', headcount: 1, requiredSkills: '' });
     posDialog.isEdit = false;
     posDialog.id = null;
   }
@@ -322,4 +348,6 @@ onMounted(load);
 .pos-req { color: #909399; font-size: 12px; margin-top: 2px; white-space: pre-wrap; }
 .pos-table { margin: 8px 0 10px; }
 .add-pos { margin-top: 4px; }
+.form-hint { color: #c0c4cc; font-size: 12px; line-height: 1.5; }
+.muted { color: #c0c4cc; font-size: 12px; }
 </style>

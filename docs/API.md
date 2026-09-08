@@ -111,6 +111,19 @@ multipart 字段：`studentName, phone, email, school, major, grade, content` + 
 | PUT/DELETE | /tags/:id |
 | PUT | /applications/:id/tags —— 打标/取消打标 |
 
+## 智能匹配 Match（技能标签）
+简历 `skills` 与岗位 `requiredSkills` 均为逗号分隔标签；匹配度 = 命中技能数 / 期望技能数。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | /resumes/:id/match-top?clubId=&limit=&minScore= | 简历 → 全平台/指定社团岗位按匹配度排序（返回命中/缺失技能） |
+| GET | /clubs/:clubId/match-applicants?limit= | 社团内"转岗建议"：未录取投递者 × open 岗位的高分组合（≥50%） |
+
+## 数据看板 Dashboard（只读统计）
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | /dashboard?clubId=&days= | 聚合统计：core 指标 / funnel 漏斗 / progress 岗位进度 / distributions 类型与年级 / trend 投递趋势 |
+
 ## 认证 Auth（M5 启用）
 | 方法 | 路径 | 说明 |
 |---|---|---|

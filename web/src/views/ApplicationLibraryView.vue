@@ -105,6 +105,9 @@
           <el-descriptions-item label="当前状态">
             <el-tag size="small" :type="statusColor(drawer.app.status)">{{ statusLabel(drawer.app.status) }}</el-tag>
           </el-descriptions-item>
+          <el-descriptions-item v-if="drawer.app.skills" label="技能标签">
+            <el-tag v-for="s in splitSkills(drawer.app.skills)" :key="s" size="small" type="warning" effect="plain" style="margin-right: 4px">{{ s }}</el-tag>
+          </el-descriptions-item>
         </el-descriptions>
 
         <div class="drawer-block">
@@ -117,6 +120,45 @@
           <el-button type="primary" link @click="openAttachment(drawer.app.attachment_path)">
             <el-icon><Download /></el-icon>&nbsp;查看附件
           </el-button>
+        </div>
+
+        <!-- 智能匹配：推荐该简历可投的其它岗位 -->
+        <div class="drawer-block">
+          <div class="drawer-title">
+            智能匹配推荐
+            <el-button type="primary" link size="small" :loading="matchLoading" @click="loadMatchSuggestions">
+              <el-icon><MagicStick /></el-icon>&nbsp;计算匹配
+            </el-button>
+          </div>
+          <div v-if="matchLoading" class="muted">匹配计算中…</div>
+          <div v-else-if="matchSuggs === null" class="muted">点击"计算匹配"，查看该简历与各社团开放岗位的匹配度</div>
+          <template v-else>
+            <el-empty v-if="matchSuggs.length === 0" description="暂无匹配岗位" :image-size="60" />
+            <div v-for="(r, i) in matchSuggs.slice(0, 5)" :key="r.positionId" class="sug-item">
+              <div class="sug-rank" :class="{ top: i === 0 }">{{ i + 1 }}</div>
+              <div class="sug-main">
+                <div class="sug-title">
+                  <span class="sug-club">{{ r.clubName }}</span>
+                  <span class="sug-pos">{{ r.recruitmentTitle }} · {{ r.positionTitle }}</span>
+                </div>
+                <div class="sug-skills">
+                  <span v-for="h in r.hitSkills" :key="h" class="sug-hit">{{ h }} ✓</span>
+                  <span v-for="m in r.missingSkills" :key="m" class="sug-miss">{{ m }}</span>
+                </div>
+              </div>
+              <div class="sug-right">
+                <div class="sug-score">{{ r.score }}%</div>
+                <el-button
+                  v-if="r.status === 'open'"
+                  size="small"
+                  type="success"
+                  plain
+                  :disabled="r.positionId === drawer.app.position_id"
+                  @click="quickApply(r)"
+                >{{ r.positionId === drawer.app.position_id ? '已投此岗' : '转投' }}</el-button>
+              </div>
+            </div>
+          </template>
         </div>
 
         <div class="drawer-block">
@@ -160,7 +202,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { clubApi, recruitmentApi, positionApi, applicationApi, dictApi } from '../api/index.js';
+import { clubApi, recruitmentApi, positionApi, applicationApi, dictApi, matchApi } from '../api/index.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -316,6 +358,41 @@ async function onRecChange() {
 /* 详情抽屉 */
 const drawer = reactive({ visible: false, app: null });
 const scoreForm = reactive({ score: 0, note: '', typeTag: 'other' });
+const matchLoading = ref(false);
+const matchSuggs = ref(null);
+
+function splitSkills(raw) {
+  if (!raw) return [];
+  return String(raw).split(/[,，、;；]/).map((s) => s.trim()).filter(Boolean);
+}
+
+async function loadMatchSuggestions() {
+  if (!drawer.app) return;
+  matchLoading.value = true;
+  try {
+    const r = await matchApi.matchTop(drawer.app.resume_id, { limit: 10, minScore: 10 });
+    matchSuggs.value = r.recommendations;
+  } finally {
+    matchLoading.value = false;
+  }
+}
+
+/** 一键转投：给推荐岗位创建投递 */
+async function quickApply(sug) {
+  await ElMessageBox.confirm(
+    `将「${drawer.app.student_name}」转投到 ${sug.clubName} / ${sug.positionTitle}？（匹配度 ${sug.score}%）`,
+    '确认转投',
+    { type: 'info' }
+  );
+  const app = await applicationApi.create(sug.positionId, {
+    resumeId: drawer.app.resume_id,
+    typeTag: drawer.app.type_tag || 'other',
+  });
+  ElMessage.success(`已投递「${sug.positionTitle}」`);
+  // 刷新抽屉与列表
+  drawer.visible = false;
+  load();
+}
 
 async function openDetail(appId) {
   const app = await applicationApi.detail(appId);
@@ -323,7 +400,10 @@ async function openDetail(appId) {
   scoreForm.score = app.score || 0;
   scoreForm.note = app.note || '';
   scoreForm.typeTag = app.type_tag || 'other';
+  matchSuggs.value = null;
   drawer.visible = true;
+  // 有技能标签时自动算一次匹配推荐
+  if (app.skills) loadMatchSuggestions();
 }
 
 async function refreshDrawer(appId) {
@@ -430,5 +510,83 @@ onMounted(async () => {
   line-height: 1.7;
   max-height: 300px;
   overflow-y: auto;
+}
+.sug-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  margin-bottom: 6px;
+}
+.sug-rank {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #f0f2f5;
+  color: #606266;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.sug-rank.top {
+  background: #409eff;
+  color: #fff;
+}
+.sug-main {
+  flex: 1;
+  min-width: 0;
+}
+.sug-title {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.sug-club {
+  color: #409eff;
+  font-weight: 600;
+  font-size: 13px;
+}
+.sug-pos {
+  font-size: 13px;
+  color: #303133;
+}
+.sug-skills {
+  margin-top: 4px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.sug-hit {
+  font-size: 11px;
+  background: #f0f9eb;
+  color: #67c23a;
+  border-radius: 3px;
+  padding: 0 5px;
+}
+.sug-miss {
+  font-size: 11px;
+  color: #c0c4cc;
+  border: 1px dashed #dcdfe6;
+  border-radius: 3px;
+  padding: 0 5px;
+}
+.sug-right {
+  text-align: center;
+  flex-shrink: 0;
+}
+.sug-score {
+  font-weight: 700;
+  color: #67c23a;
+  font-size: 15px;
+}
+.muted {
+  color: #c0c4cc;
+  font-size: 13px;
 }
 </style>

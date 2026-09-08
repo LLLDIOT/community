@@ -57,3 +57,16 @@ export const applicationApi = {
 export const dictApi = {
   get: () => http.get('/dict'),
 };
+
+/* ---------- 数据看板 ---------- */
+export const dashboardApi = {
+  get: (params) => http.get('/dashboard', params),
+};
+
+/* ---------- 智能匹配 ---------- */
+export const matchApi = {
+  /** 简历 → 推荐岗位（跨社团匹配度排序） */
+  matchTop: (resumeId, params) => http.get(`/resumes/${resumeId}/match-top`, params),
+  /** 社团侧：未录取投递者与 open 岗位的高分组合 */
+  matchApplicants: (clubId, params) => http.get(`/clubs/${clubId}/match-applicants`, params),
+};

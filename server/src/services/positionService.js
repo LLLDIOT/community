@@ -4,7 +4,7 @@ import { notFound, badRequest } from '../utils/errors.js';
 
 function pickPositionFields(body) {
   const fields = {};
-  for (const k of ['title', 'requirement', 'headcount', 'sortOrder']) {
+  for (const k of ['title', 'requirement', 'headcount', 'sortOrder', 'requiredSkills']) {
     if (body[k] !== undefined) fields[k] = body[k];
   }
   return fields;
@@ -37,8 +37,8 @@ export function createPosition(recruitmentId, body) {
   const id = genId('pos');
 
   db.prepare(
-    `INSERT INTO position (id, recruitment_id, title, requirement, headcount, filled_count, sort_order, created_at, updated_at)
-     VALUES (@id, @recruitmentId, @title, @requirement, @headcount, 0, @sortOrder, @createdAt, @updatedAt)`
+    `INSERT INTO position (id, recruitment_id, title, requirement, headcount, filled_count, sort_order, required_skills, created_at, updated_at)
+     VALUES (@id, @recruitmentId, @title, @requirement, @headcount, 0, @sortOrder, @requiredSkills, @createdAt, @updatedAt)`
   ).run({
     id,
     recruitmentId,
@@ -46,6 +46,7 @@ export function createPosition(recruitmentId, body) {
     requirement: fields.requirement ?? '',
     headcount,
     sortOrder: fields.sortOrder ?? 0,
+    requiredSkills: fields.requiredSkills ?? null,
     createdAt: now,
     updatedAt: now,
   });

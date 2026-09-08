@@ -4,7 +4,7 @@ import { notFound, badRequest } from '../utils/errors.js';
 
 function pickResumeFields(body) {
   const fields = {};
-  for (const k of ['studentName', 'phone', 'email', 'school', 'major', 'grade', 'content', 'attachmentPath']) {
+  for (const k of ['studentName', 'phone', 'email', 'school', 'major', 'grade', 'content', 'attachmentPath', 'skills']) {
     if (body[k] !== undefined) fields[k] = body[k];
   }
   return fields;
@@ -25,9 +25,9 @@ export function createResume(body) {
 
   db.prepare(
     `INSERT INTO resume (id, student_name, phone, email, school, major, grade,
-                         content, attachment_path, created_at, updated_at)
+                         content, attachment_path, skills, created_at, updated_at)
      VALUES (@id, @studentName, @phone, @email, @school, @major, @grade,
-             @content, @attachmentPath, @createdAt, @updatedAt)`
+             @content, @attachmentPath, @skills, @createdAt, @updatedAt)`
   ).run({
     id,
     studentName: fields.studentName.trim(),
@@ -38,6 +38,7 @@ export function createResume(body) {
     grade: fields.grade ?? null,
     content: fields.content ?? null,
     attachmentPath: fields.attachmentPath ?? null,
+    skills: fields.skills ?? null,
     createdAt: now,
     updatedAt: now,
   });
