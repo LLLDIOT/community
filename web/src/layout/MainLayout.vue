@@ -27,6 +27,12 @@
           <span>智能匹配推荐</span>
         </el-menu-item>
       </el-menu>
+
+      <!-- 学生投递端入口（独立 H5 页面，新窗口打开） -->
+      <div class="student-entry">
+        <a href="/portal.html" target="_blank" rel="noopener" class="student-link">📱 学生投递端 ↗</a>
+        <div class="student-hint">学生填写简历并投递的入口</div>
+      </div>
     </el-aside>
 
     <el-container>
@@ -93,6 +99,26 @@ const activeMenu = computed(() => {
 }
 .layout-menu :deep(.el-menu-item:hover) {
   color: #fff;
+}
+.student-entry {
+  margin: 16px 12px;
+  padding: 10px 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+}
+.student-link {
+  color: #6ec1ff;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.student-link:hover {
+  color: #fff;
+}
+.student-hint {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  margin-top: 4px;
 }
 .layout-header {
   background: #fff;
