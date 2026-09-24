@@ -1,7 +1,10 @@
 # API 设计（v1）
 
-> Base URL：`/api/v1`　|　认证：`Authorization: Bearer <JWT>`（M5 启用，M1-M2 先开放）
+> Base URL：`/api/v1`
+> 认证：**HTTP Basic Auth**（可选，由 `server/.env` 的 `BASIC_AUTH_DISABLE` 开关；`/healthz` 免认证）。
+> 多角色 JWT 登录为 M5 规划项，尚未实现。
 > 响应格式：成功 `{ code: 0, data }`；失败 `{ code, message }`。
+> 字典：`GET /dict` → `{ typeTags, statuses, statusTransitions }`（前端复用后端状态流转规则）。
 
 ## 社团 Club
 
@@ -124,7 +127,23 @@ multipart 字段：`studentName, phone, email, school, major, grade, content` + 
 |---|---|---|
 | GET | /dashboard?clubId=&days= | 聚合统计：core 指标 / funnel 漏斗 / progress 岗位进度 / distributions 类型与年级 / trend 投递趋势 |
 
-## 认证 Auth（M5 启用）
+## 学生投递端 Portal（复用管理端接口，无专用 API）
+
+学生端（`web/public/portal.html`）通过适配层 `portal-adapter.js` 调用**既有接口**完成投递，
+后端不需要为学生端新增任何接口或数据表：
+
+| 学生端动作 | 调用的既有接口 | 说明 |
+|---|---|---|
+| 加载社团列表 | `GET /clubs?page=1&pageSize=100` | 经适配层转换字段（`description`→`intro`、`positions[].title`→`name` 等） |
+| 查看社团详情与岗位 | `GET /clubs/:id` | 取 `recruitments[].positions[]`，适配层拍平成可选岗位列表 |
+| 提交简历 | `POST /resumes`（JSON） | 由模板字段拼成 `content` 正文 + 基本信息 + `skills` |
+| 投递岗位 | `POST /positions/:id/applications` | `{ resumeId, typeTag }`，`typeTag` 由社团分类自动映射 |
+| 查看投递进度 | `GET /applications/:id` | 本地只存 applicationId 索引，状态每次从服务端拉取最新 |
+| 简历模板 | 无接口 | 适配层按 `club.category` 在前端生成字段（技术/文艺/组织/体育/学术/公益） |
+
+> 客户端缓存：学生档案与投递索引存 localStorage（键 `portal_student_profile` / `portal_applications`）。
+
+## 认证 Auth（M5 规划，尚未实现）
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | /auth/login | 用户名密码登录 → { token, user } |
@@ -136,8 +155,8 @@ multipart 字段：`studentName, phone, email, school, major, grade, content` + 
 | code | 含义 |
 |---|---|
 | 0 | 成功 |
-| 40001 | 参数校验失败 |
-| 40002 | 状态流转非法（含 allowed 列表） |
+| 40001 | 参数校验失败（含状态流转非法，消息里带允许的下一状态） |
 | 40400 | 资源不存在 |
 | 40300 | 权限不足 |
+| 40100 | 需要访问密码（Basic Auth 未通过） |
 | 50000 | 服务器内部错误 |

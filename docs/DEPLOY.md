@@ -11,9 +11,23 @@
   cpolar 隧道配置位于 `~/.cpolar/cpolar.yml`（community → :3000）。
 - 公网访问受 **HTTP Basic Auth** 保护，凭据在 `server/.env`
   （`BASIC_AUTH_USER` / `BASIC_AUTH_PASS`），该文件不入库。
+  用 `BASIC_AUTH_DISABLE=1` 可关闭密码（仅建议本机使用）。
 - 免费版 cpolar 公网域名是**随机的**，重启隧道后变化；
   查看当前地址：`Get-Content "$env:USERPROFILE\.cpolar\run.log*" | Select-String "established"`
   固定域名需在 cpolar 控制台购买保留域名。
+
+### 访问入口一览（本机部署）
+
+| 入口 | 地址 | 说明 |
+|---|---|---|
+| 管理端（PC） | `http://localhost:3000` | 看板 / 社团管理 / 简历库 / 智能匹配 |
+| 学生投递端（手机风格） | `http://localhost:3000/portal.html` | 学生选社团岗位、按模板填简历、真实投递；管理端侧边栏底部也有入口 |
+| 健康检查 | `http://localhost:3000/healthz` | 免认证，用于探活 |
+| 开发模式前端 | `http://localhost:5173` | 仅开发用（`npm run dev`），已代理 `/api` 到 3000 |
+
+> 学生端是 `web/public/` 下的免构建页面，`npm run build` 时原样复制到 `web/dist/`，
+> 因此生产模式下由后端单端口一起托管，无需额外配置。
+> 数据库文件 `server/data/club.db`（含学生投递的简历），备份即完整备份业务数据。
 
 ## 1. 本地开发（前后端分离，热更新）
 
