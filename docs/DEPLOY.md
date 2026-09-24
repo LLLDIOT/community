@@ -29,6 +29,57 @@
 > 因此生产模式下由后端单端口一起托管，无需额外配置。
 > 数据库文件 `server/data/club.db`（含学生投递的简历），备份即完整备份业务数据。
 
+### 部署拓扑
+
+```mermaid
+flowchart TB
+    subgraph PC["本机（Windows）"]
+        subgraph TASKS["Windows 计划任务（登录自启）"]
+            T1["Community-Server<br/>node src/index.js"]
+            T2["Community-Cpolar<br/>cpolar start community（带代理）"]
+        end
+        N["node 进程<br/>监听 :3000"]
+        DBF[("server/data/club.db<br/>WAL")]
+        UP[("server/uploads/<br/>简历附件")]
+        DIST["web/dist/<br/>前端构建产物"]
+
+        T1 --> N
+        N --> DBF
+        N --> UP
+        N -->|"express.static + SPA fallback"| DIST
+    end
+
+    B1["🧑‍💼 管理端浏览器<br/>localhost:3000"]
+    B2["👨‍🎓 学生端<br/>localhost:3000/portal.html"]
+
+    B1 --> N
+    B2 --> N
+    T2 -.->|"可选：公网隧道"| NET["☁️ cpolar 云端<br/>https://xxx.cpolar.cn"]
+    NET -.->|"转发"| N
+```
+
+**要点**：只有一个 node 进程对外服务（:3000），前端页面由它一并托管；
+计划任务保证登录即自启；数据落在 `data/` 与 `uploads/`，两个目录即完整备份。
+
+### 两种运行模式对照
+
+```mermaid
+flowchart LR
+    subgraph DEV["开发模式（改代码时）"]
+        V["Vite :5173<br/>热更新"] -->|"代理 /api /uploads"| BE1["后端 :3000"]
+    end
+    subgraph PROD["生产模式（日常使用）"]
+        BE2["后端 :3000<br/>同时托管 web/dist"] --> U["浏览器访问 :3000"]
+    end
+```
+
+| | 开发模式 | 生产模式 |
+|---|---|---|
+| 启动 | `cd server && npm run dev` + `cd web && npm run dev` | `node src/index.js`（计划任务自动） |
+| 访问 | `http://localhost:5173` | `http://localhost:3000` |
+| 改前端代码后 | 浏览器自动刷新 | **必须 `npm run build`** 重新构建 |
+| 用途 | 写代码、调界面 | 给真实用户使用 |
+
 ## 1. 本地开发（前后端分离，热更新）
 
 ```bash

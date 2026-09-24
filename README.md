@@ -7,6 +7,19 @@
 - **技术栈**：Vue 3 + Element Plus + ECharts（web/） · Express + better-sqlite3（server/）
 - **协议**：MIT（本仓库 LICENSE）
 
+## 系统总览
+
+```mermaid
+flowchart LR
+    S["👨‍🎓 学生<br/>手机端 H5<br/>/portal.html"] -->|"投递简历"| API
+    A["🧑‍💼 社团管理员<br/>PC 管理端"] -->|"管理/筛选/录取"| API
+    API["后端 Express :3000<br/>routes → services → db"] --> DB[("SQLite<br/>club.db")]
+    API --> UP[("uploads/<br/>简历附件")]
+```
+
+> 📘 **新手建议先看**：[docs/BEGINNER_GUIDE.md](docs/BEGINNER_GUIDE.md)
+> —— 含结构图、时序图、数据流详解、部署拓扑与术语词典，零基础可读。
+
 ## 仓库结构
 
 ```

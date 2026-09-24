@@ -1,16 +1,80 @@
 # 数据模型设计
 
-> 版本：v0.1（M1 配套）　|　对应实现：`server/db/migrations/001-init.sql`
+> 版本：v0.3　|　对应实现：`server/db/migrations/001~003*.sql`
 
-## ER 总览
+## ER 图
 
+```mermaid
+erDiagram
+    club ||--o{ recruitment : "一个社团有多个招新批次"
+    recruitment ||--o{ position : "一个批次有多个招新岗位"
+    position ||--o{ application : "一个岗位收到多份投递"
+    resume ||--o{ application : "一份简历可投多个岗位"
+    club ||--o{ tag : "社团自定义标签"
+    application ||--o{ application_tags : "投递可打多个标签"
+    tag ||--o{ application_tags : "标签可标记多个投递"
+
+    club {
+        TEXT id PK "club_ + 随机串"
+        TEXT name UK "社团名称（唯一）"
+        INTEGER scale "规模人数"
+        TEXT description "社团说明"
+        TEXT category "技术/文艺/组织/体育/学术/公益"
+        TEXT contact_name "招新联系人"
+        INTEGER is_visible "1=可见"
+    }
+    recruitment {
+        TEXT id PK
+        TEXT club_id FK
+        TEXT title "如：2026 秋季招新"
+        TEXT status "draft / open / closed"
+        TEXT start_at "开始时间"
+        TEXT end_at "结束时间"
+    }
+    position {
+        TEXT id PK
+        TEXT recruitment_id FK
+        TEXT title "岗位名，如：前端开发干事"
+        TEXT requirement "需求说明"
+        INTEGER headcount "招新人数"
+        INTEGER filled_count "已录取人数（冗余计数）"
+        TEXT required_skills "期望技能标签，逗号分隔"
+    }
+    resume {
+        TEXT id PK
+        TEXT student_name "姓名"
+        TEXT phone "联系方式"
+        TEXT school "学校/学院"
+        TEXT major "专业"
+        TEXT grade "年级"
+        TEXT content "简历正文（模板拼成的文本）"
+        TEXT skills "个人技能标签，逗号分隔"
+        TEXT attachment_path "附件相对路径"
+    }
+    application {
+        TEXT id PK
+        TEXT position_id FK
+        TEXT resume_id FK
+        TEXT type_tag "技术/组织/文艺/体育/学术/公益/其他"
+        TEXT status "new/screening/interviewing/admitted/rejected/archived"
+        INTEGER score "人工评分 1-5"
+        TEXT note "社团备注"
+        INTEGER was_admitted "是否曾录取（终身标记）"
+    }
+    tag {
+        TEXT id PK
+        TEXT club_id FK
+        TEXT name "标签名"
+        TEXT color "展示色"
+    }
+    application_tags {
+        TEXT application_id FK
+        TEXT tag_id FK
+    }
 ```
-Club (1) ────< Recruitment (1) ────< Position (1) ────< Application
-                                                            │
-                                                            └──< Resume (1)
-Club ────< ClubAdmin (社团管理员关联)
-Application >──< Tag (多对多, 通过 application_tags)
-```
+
+**关系读法**：`club ||--o{ recruitment` 表示"一个社团对应零到多个批次"（一条竖线=恰好一个，`o{`=零或多）。
+唯一约束 `UNIQUE(position_id, resume_id)` 保证同一份简历不能重复投同一个岗位。
 
 ## 表结构（SQLite DDL）
 
@@ -111,13 +175,32 @@ Application >──< Tag (多对多, 通过 application_tags)
 
 ## 状态机（application.status）
 
+```mermaid
+stateDiagram-v2
+    [*] --> new : 学生投递 / 管理员录入
+    new --> screening : 开始筛选
+    new --> rejected : 明显不合适
+    screening --> interviewing : 约面试
+    screening --> admitted : 直接通过
+    screening --> rejected : 筛选未过
+    interviewing --> admitted : 面试通过
+    interviewing --> rejected : 面试未过
+    admitted --> archived : 招新结束归档
+    rejected --> archived : 存入人才池
+    archived --> rejected : 取消归档（复活）
+    archived --> [*]
 ```
-                 ┌──────────────────────────────────────┐
-  新收到 new ──► screening ──► interviewing ──► admitted │
-     │              │              │                    │
-     └──────────────┴──────────────┴──► rejected ───────┘
-              任意状态 ──► archived（归档/结束，冻结流转）
-```
+
+**流转白名单**（`STATUS_TRANSITIONS`，前后端共用同一份规则）：
+
+| 当前状态 | 允许的下一状态 |
+|---|---|
+| `new` 新收到 | screening / rejected / archived |
+| `screening` 待筛选 | interviewing / rejected / admitted / archived |
+| `interviewing` 面试中 | admitted / rejected / archived |
+| `admitted` 已录取 | archived |
+| `rejected` 已淘汰 | archived |
+| `archived` 已归档 | （终态，需先取消归档） |
 
 合法跳转白名单在 service 层校验（见 `server/src/services/applicationService.js` 的 `STATUS_TRANSITIONS`），
 并通过 `GET /api/v1/dict` 下发给前端复用，保证前后端规则一致。
