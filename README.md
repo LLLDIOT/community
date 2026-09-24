@@ -12,12 +12,13 @@
 ```
 community/
 ├─ docs/
+│  ├─ BEGINNER_GUIDE.md # 新手完全指南（结构图/时序图/数据流/部署拓扑）
 │  ├─ ARCHITECTURE.md   # 架构设计与里程碑
 │  ├─ DATA_MODEL.md     # 数据模型 + SQL DDL
 │  ├─ API.md            # REST API 设计
 │  └─ DEPLOY.md         # 部署指南
 ├─ server/              # Express API（M1-M2 ✅）
-├─ web/                 # Vue3 前端（M3-M4 ✅）
+├─ web/                 # Vue3 前端（M3-M4 ✅）+ public/ 学生端 H5
 ├─ Dockerfile           # 多阶段构建（前端 + 后端）
 ├─ docker-compose.yml   # 一键部署
 ├─ README.md
