@@ -84,14 +84,18 @@ docker compose up -d --build
 curl http://localhost:3000/api/v1/clubs
 curl http://localhost:3000/healthz
 
-# 社团端改造：端到端冒烟测试（脚本内共 93 项断言，全通过为合格；
+# 社团端改造：端到端冒烟测试（脚本内共 101 项断言，全通过为合格；
 # 其中跨社团隔离、调剂等少数用例需要数据满足条件（社团数 > 1、岗位数 > 1）才会执行）
-cd server && node scripts/smoke-club-console.mjs
+cd server && npm run smoke            # 等价于 node scripts/smoke-club-console.mjs
 # 覆盖全链路：招新广场 → 账号登录 → 录入标准/投递时间 → 面试工作台
 #   → 决策（含状态机拦截/撤销）→ 调剂（含匹配建议）→ 候补 1号/2号
-#   → 递补招满员 → 权限矩阵（viewer 被拒、跨社团被拒）→ 字典
-#   → 简历库结论筛选/统计/CSV 导出
+#   → 递补招满员 → 权限矩阵（viewer 被拒、跨社团被拒、未登录被拒、
+#     以及学生端投递入口保持开放）→ 字典 → 简历库结论筛选/统计/CSV 导出
 # 自建临时简历与投递，跑完自动清理，并把被改动的真实社团字段还原
+
+# 辅助脚本
+cd server && npm run migrate          # 只跑数据库迁移并打印当前表结构
+cd server && npm run account:reset    # 列出社团账号；加 --club 社团名 可重置社长密码
 ```
 辅助脚本：`node scripts/check-migration.mjs`（只跑数据库迁移）、`node scripts/cleanup-smoke.mjs`（清理测试残留）。
 
@@ -123,6 +127,8 @@ cd server && node scripts/smoke-club-console.mjs
 - **登录入口**：管理端左下角「🔑 登录社团账号」，或「招新广场 → 我的社团」面板里的登录卡；支持**按账号名登录**（也可直接填**社团名**）和**按社团登录**两种方式。
 - **登录后能做什么**：在「我的社团 → 账号与权限」里**新建面试官（interviewer）/ 观察员（viewer）账号**、修改角色、停用/删除账号、重置他人密码，以及**修改自己的密码**（改完会强制下线重新登录）。
 - 角色能力：**社长**=全部（含社团资料、批次岗位、账号管理）；**面试官**=查看 + 面试决策；**观察员**=只读查看。
+- **忘记密码**：`cd server && npm run account:reset -- --club 社团名`（重置社长密码；加 `--password 新密码` 可指定）。
+  注意 `initial-accounts.txt` 是**追加**写入的，同一社团可能有多行历史记录，**以最新一条为准**。
 
 ## 开发进度
 
