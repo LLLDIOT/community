@@ -21,8 +21,10 @@ COPY --from=web-build /app/web/dist ./web/dist
 
 # 运行时数据与附件目录（compose 中以 volume 挂载）
 ENV NODE_ENV=production
+# 两个站点：社团端（3000，有密码） + 学生端（3001，无密码）
 ENV PORT=3000
-EXPOSE 3000
+ENV STUDENT_PORT=3001
+EXPOSE 3000 3001
 
 WORKDIR /app/server
 CMD ["node", "src/index.js"]

@@ -2,12 +2,16 @@ services:
   community:
     build: .
     container_name: community
-    # 只监听本机回环是错的——公网访问需要暴露端口；用 APP_PORT 可换端口
+    # 两个站点 = 两个端口（同一个进程、同一份数据）
+    #   社团端（有密码）  APP_PORT         默认 3000
+    #   学生端（无密码）  STUDENT_APP_PORT 默认 3001
     ports:
       - "${APP_PORT:-3000}:3000"
+      - "${STUDENT_APP_PORT:-3001}:3001"
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - STUDENT_PORT=3001
       # ── 全站访问密码（公网部署必须设置强密码，否则等于裸奔）──
       # 用 ":?" 语法让 compose 在变量缺失时直接报错退出，避免"以为设了其实没设"
       - BASIC_AUTH_USER=${BASIC_AUTH_USER:-admin}
@@ -18,6 +22,9 @@ services:
       - CLUB_SESSION_HOURS=${CLUB_SESSION_HOURS:-12}
       # ── 可选：设置后，创建社团必须带开通口令（防陌生人在公开站点随意注册社团）──
       - CLUB_CREATE_TOKEN=${CLUB_CREATE_TOKEN:-}
+      # ── 可选：学生端的完整外部地址。配了域名就填（如 https://apply.example.com），
+      #    社团端侧边栏的「学生投递端」链接会指向它；不填则按访问主机名 + 学生端端口推导 ──
+      - STUDENT_SITE_URL=${STUDENT_SITE_URL:-}
       # ── 可选：数据库路径（默认 /app/server/data/club.db，随卷持久化）──
       - DB_PATH=${DB_PATH:-/app/server/data/club.db}
     volumes:
@@ -31,3 +38,4 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+

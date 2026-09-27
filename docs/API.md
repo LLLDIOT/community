@@ -260,21 +260,34 @@ query：`recruitmentId`、`positionId`、`keyword`（姓名/专业/学校）、`
 |---|---|---|
 | GET | /dashboard?clubId=&days= | 聚合统计：core 指标 / funnel 漏斗 / progress 岗位进度 / distributions 类型与年级 / trend 投递趋势 |
 
-## 学生投递端 Portal（复用管理端接口，无专用 API）
+## 学生投递端 Portal（独立站点 + 专用白名单，共 5 个接口）
 
-学生端（`web/public/portal.html`）通过适配层 `portal-adapter.js` 调用**既有接口**完成投递，
-后端不需要为学生端新增任何接口或数据表：
+学生端现在是**独立网站**（默认 `:3001`，无需全站密码），不再挂在社团端路径下。
+页面是 `web/public/portal.html` + 适配层 `portal-adapter.js`。
 
-| 学生端动作 | 调用的既有接口 | 说明 |
+**后端为学生端单独准备了一份最小接口白名单**（`server/src/routes/studentRoutes.js`），
+而不是复用社团端路由——因为学生端是公开站点，接口面积必须尽可能小：
+
+| 学生端动作 | 学生端站点接口 | 说明 |
 |---|---|---|
-| 加载社团列表 | `GET /clubs?page=1&pageSize=100` | 经适配层转换字段（`description`→`intro`、`positions[].title`→`name` 等） |
-| 查看社团详情与岗位 | `GET /clubs/:id` | 取 `recruitments[].positions[]`，适配层拍平成可选岗位列表 |
-| 提交简历 | `POST /resumes`（JSON） | 由模板字段拼成 `content` 正文 + 基本信息 + `skills` |
-| 投递岗位 | `POST /positions/:id/applications` | `{ resumeId, typeTag }`，`typeTag` 由社团分类自动映射 |
-| 查看投递进度 | `GET /applications/:id` | 本地只存 applicationId 索引，状态每次从服务端拉取最新 |
-| 简历模板 | 无接口 | 适配层按 `club.category` 在前端生成字段（技术/文艺/组织/体育/学术/公益） |
+| 加载社团列表 | `GET /api/v1/clubs` | 适配层转换字段（`description`→`intro`、`positions[].title`→`name` 等） |
+| 查看社团详情与岗位 | `GET /api/v1/clubs/:id` | 取 `recruitments[].positions[]`，适配层拍平成可选岗位列表 |
+| 提交简历 | `POST /api/v1/resumes`（JSON 或 multipart） | 由模板字段拼成 `content` 正文 + 基本信息 + `skills` |
+| 投递岗位 | `POST /api/v1/positions/:positionId/applications` | `{ resumeId, typeTag }`，`typeTag` 由社团分类自动映射 |
+| 查看投递进度 | `GET /api/v1/applications/:id` | 本地只存 applicationId 索引，状态每次从服务端拉取最新 |
 
+白名单之外的一切请求，学生端站点一律返回 **404**，包括：
+`/api/v1/auth/*`（登录）、`/api/v1/dashboard`（看板）、`/api/v1/square/*`（广场聚合）、
+`/api/v1/clubs/:id/applications`（简历库）、`/api/v1/clubs/:id/applications/export`（CSV 导出）、
+`/api/v1/clubs/:id/interview-board`（面试工作台）、`/uploads/*`（简历附件）。
+
+> 两个写入接口（建简历、投递）带**内存限流**：同一 IP 每分钟最多 20 次，
+> 超出返回 `429 { code: 42900 }`。学生端没有身份体系，这是必要的防刷底线。
+>
 > 客户端缓存：学生档案与投递索引存 localStorage（键 `portal_student_profile` / `portal_applications`）。
+>
+> ⚠️ `GET /applications/:id` 无鉴权：学生没有身份体系，只能靠 **128 位随机的 application id**
+> 当"能力凭据"（只有投递成功时返回给本人）。彻底解决要等学生侧身份认证（M5 未完成部分）。
 
 ## 认证与账号 Auth / Account
 

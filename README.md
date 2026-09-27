@@ -82,11 +82,22 @@ docker compose up -d --build
 
 ### ☁️ 部署到公网（推荐：香港轻量服务器）
 
-想让同学随时打开、不再依赖你自己的电脑，见 **[docs/DEPLOY_CLOUD.md](docs/DEPLOY_CLOUD.md)**——
-从买服务器到上线只需三步：
+系统对外是**两个独立网站、共用同一份数据**：
+
+| | 🖥️ 社团端（管理台） | 📱 学生端（投递页） |
+|---|---|---|
+| 地址（本地/云端同构） | `http://localhost:3000` | `http://localhost:3001` |
+| 给谁用 | 你 + 社团干部 | 全校学生 |
+| 要密码吗 | ✅ 要（全站密码 + 社团账号） | ❌ 不需要 |
+| 接口 | 完整 API | 只有 5 个白名单接口，且不暴露简历附件 |
+
+> 为什么拆开：学生必须能自助投递，若与管理台同站就得把管理密码发给全校。
+> 拆开后学生端公开、且**只存在投递必需的 5 个接口**。
+
+想让同学随时打开、不再依赖你自己的电脑，见 **[docs/DEPLOY_CLOUD.md](docs/DEPLOY_CLOUD.md)**：
 
 ```bash
-# 1) 在服务器上（Ubuntu）克隆并一键部署（自动装 Docker、生成强密码、起服务、配每日备份）
+# 1) 在服务器上（Ubuntu）克隆并一键部署（自动装 Docker、生成强密码、起两个站点、配每日备份）
 git clone --depth 1 https://github.com/LLLDIOT/community.git /opt/community
 bash /opt/community/deploy/provision.sh
 
@@ -98,8 +109,10 @@ scp -r server/export-* root@<服务器IP>:/root/
 # 服务器上：cd /opt/community/server && npm run data:import -- --from /root/export-xxx --force
 ```
 
-> ⚠️ 公网部署前请确认已了解 [安全须知](docs/DEPLOY_CLOUD.md#6-安全须知重要)：
-> 全站密码必须开启、简历接口必须保持登录保护、学生端无法防冒名投递。
+> ⚠️ 公网部署前请确认已了解 [安全须知](docs/DEPLOY_CLOUD.md#7-安全须知重要)：
+> 社团端密码必须开启、简历接口必须保持登录保护、学生端无法防冒名投递。
+>
+> 本地只想跑单站点（开发用）：把 `STUDENT_PORT` 设成 `0` 即可关掉学生端监听。
 
 ### 冒烟测试
 ```bash

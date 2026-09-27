@@ -20,6 +20,7 @@ set -euo pipefail
 APP_DIR="${APP_DIR:-/opt/community}"
 REPO_URL="${REPO_URL:-https://github.com/LLLDIOT/community.git}"
 APP_PORT="${APP_PORT:-3000}"
+STUDENT_APP_PORT="${STUDENT_APP_PORT:-3001}"
 
 log()  { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m[警告] %s\033[0m\n' "$*"; }
@@ -68,11 +69,13 @@ else
   BASIC_AUTH_PASS="$(head -c 18 /dev/urandom | base64 | tr -d '/+=' | head -c 20)"
   CLUB_CREATE_TOKEN="$(head -c 18 /dev/urandom | base64 | tr -d '/+=' | head -c 20)"
   cat > .env <<EOF
-# ── 全站访问密码（浏览器打开网站时弹出，必须输入）──
+# ── 两个站点 ──
+# 社团端：PC 管理台，有全站访问密码
+# 学生端：手机投递用，无需密码（学生的投递入口）
 BASIC_AUTH_USER=admin
 BASIC_AUTH_PASS=${BASIC_AUTH_PASS}
 
-# 绝对不要设为 1（那会关闭全站密码保护）
+# 绝对不要设为 1（那会关闭社团端的全站密码保护）
 BASIC_AUTH_DISABLE=0
 
 # 社团账号会话有效期（小时）
@@ -83,6 +86,7 @@ CLUB_CREATE_TOKEN=${CLUB_CREATE_TOKEN}
 
 # 对外暴露的端口
 APP_PORT=${APP_PORT}
+STUDENT_APP_PORT=${STUDENT_APP_PORT}
 EOF
   chmod 600 .env
   echo "已生成 .env（权限 600，仅 root 可读）"
@@ -96,21 +100,29 @@ docker compose up -d --build
 
 log "等待服务就绪…"
 for i in $(seq 1 40); do
-  if curl -fsS "http://127.0.0.1:${APP_PORT:-3000}/healthz" >/dev/null 2>&1; then
-    echo "服务已就绪"
+  if curl -fsS "http://127.0.0.1:3000/healthz" >/dev/null 2>&1; then
+    echo "社团端已就绪"
     break
   fi
   sleep 2
   [[ $i -eq 40 ]] && warn "等待超时，请用 docker compose logs 查看日志"
+done
+for i in $(seq 1 20); do
+  if curl -fsS "http://127.0.0.1:3001/healthz" >/dev/null 2>&1; then
+    echo "学生端已就绪"
+    break
+  fi
+  sleep 2
 done
 
 # ─────────────────────────────────────────────────────────────
 log "5/6 防火墙"
 if command -v ufw >/dev/null 2>&1; then
   ufw allow "${APP_PORT:-3000}/tcp" >/dev/null 2>&1 || true
-  echo "已放行 ufw ${APP_PORT:-3000}/tcp（若 ufw 未启用则无影响）"
+  ufw allow "${STUDENT_APP_PORT:-3001}/tcp" >/dev/null 2>&1 || true
+  echo "已放行 ufw ${APP_PORT:-3000}/tcp（社团端）与 ${STUDENT_APP_PORT:-3001}/tcp（学生端）"
 fi
-warn "别忘了在云厂商控制台的【安全组/防火墙】里也放行 TCP ${APP_PORT:-3000}，否则外网仍然打不开！"
+warn "别忘了在云厂商控制台的【安全组/防火墙】里也放行这两个端口，否则外网仍然打不开！"
 
 # ─────────────────────────────────────────────────────────────
 log "6/6 每日自动备份"
@@ -141,17 +153,25 @@ IP="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || echo '<你的�
 cat <<EOF
 
 ════════════════════════════════════════════════════════════
-  ✅ 部署完成
+  ✅ 部署完成（两个独立网站，同一份数据）
 
-  访问地址：http://${IP}:${APP_PORT:-3000}
-  学生端  ：http://${IP}:${APP_PORT:-3000}/portal.html
+  🖥️  社团端（你和社团干部用，需要密码）
+      http://${IP}:${APP_PORT:-3000}
 
-  全站访问密码（浏览器弹窗里输入）：
+  📱  学生端（发给学生，无需密码）
+      http://${IP}:${STUDENT_APP_PORT:-3001}
+
+  ── 社团端访问密码（浏览器弹窗里输入）──
     用户名：${BASIC_AUTH_USER:-admin}
     密码  ：${BASIC_AUTH_PASS}
 
-  创建社团开通口令（新建社团时需要填）：
+  ── 创建社团开通口令（在社团端新建社团时需要填）──
     ${CLUB_CREATE_TOKEN}
+
+  两个站点的边界：
+    · 学生端只有 5 个接口（看社团 / 看岗位 / 建简历 / 投递 / 查自己进度）
+    · 简历库、导出、看板、账号管理等只在社团端，且必须登录
+    · 学生端不暴露简历附件目录
 
   常用命令：
     cd ${APP_DIR}

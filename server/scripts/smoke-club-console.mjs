@@ -622,8 +622,98 @@ const cleanup = { applicationIds: [], resumeIds: [], accountIds: [] };
     check('清理：本社团账号可删除该测试社团', delFresh.status === 200, `status=${delFresh.status}`);
   }
 
+  /* ---------- ⑭ 两个独立站点：学生端（无密码）vs 社团端（有密码） ---------- */
+  console.log('\n⑭ 站点拆分（学生端 / 社团端）');
+  const STUDENT = process.env.SMOKE_STUDENT_BASE || 'http://localhost:3001';
+
+  const rawFetch = async (url, opts = {}) => {
+    const res = await fetch(url, opts);
+    const text = await res.text();
+    return { status: res.status, text, headers: res.headers };
+  };
+
+  const studentHealth = await rawFetch(`${STUDENT}/healthz`);
+  check('学生端独立监听并探活', studentHealth.status === 200 && studentHealth.text.includes('student'),
+    `status=${studentHealth.status} body=${studentHealth.text.slice(0, 80)}`);
+
+  const clubHealth = await rawFetch('http://localhost:3000/healthz');
+  check('社团端探活标识为 club', clubHealth.status === 200 && clubHealth.text.includes('club'));
+
+  const studentRoot = await rawFetch(`${STUDENT}/`);
+  check('学生端根路径就是投递页（不是某个子路径）', studentRoot.status === 200,
+    `status=${studentRoot.status}`);
+  check('学生端首页引用适配层', studentRoot.text.includes('portal-adapter.js'));
+  check('学生端首页不含 Vue SPA 挂载点（两站未混在一起）',
+    !studentRoot.text.includes('<div id="app">'),
+    '意外出现了 SPA 挂载点');
+
+  const adapter = await rawFetch(`${STUDENT}/portal-adapter.js`);
+  check('学生端适配层可访问', adapter.status === 200 && adapter.text.includes('PortalAPI'),
+    `status=${adapter.status}`);
+
+  // 学生端白名单接口
+  const sClubs = await rawFetch(`${STUDENT}/api/v1/clubs?page=1&pageSize=100`);
+  check('学生端可读社团列表（白名单）', sClubs.status === 200, `status=${sClubs.status}`);
+  const sClubList = JSON.parse(sClubs.text).data.list;
+  const sClubId = sClubList[0].id;
+  const sDetail = await rawFetch(`${STUDENT}/api/v1/clubs/${sClubId}`);
+  check('学生端可读社团详情与岗位（白名单）', sDetail.status === 200, `status=${sDetail.status}`);
+  const sPosId = JSON.parse(sDetail.text).data.recruitments?.[0]?.positions?.[0]?.id;
+  check('学生端能拿到可投递的岗位', Boolean(sPosId));
+
+  // 学生端完整投递链路（无任何登录态）
+  const sResume = await rawFetch(`${STUDENT}/api/v1/resumes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ studentName: '冒烟测试·学生端投递', grade: '大一', major: '测试', skills: 'Vue', content: 'x' }),
+  });
+  check('学生端无需登录即可建简历', sResume.status === 200 || sResume.status === 201,
+    `status=${sResume.status}`);
+  const sResumeId = JSON.parse(sResume.text).data?.id;
+  if (sResumeId) cleanup.resumeIds.push(sResumeId);
+
+  const sApply = await rawFetch(`${STUDENT}/api/v1/positions/${sPosId}/applications`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ resumeId: sResumeId, typeTag: 'other' }),
+  });
+  check('学生端无需登录即可投递', sApply.status === 200 || sApply.status === 201, `status=${sApply.status}`);
+  const sAppId = JSON.parse(sApply.text).data?.id;
+  if (sAppId) cleanup.applicationIds.push(sAppId);
+
+  const sProgress = await rawFetch(`${STUDENT}/api/v1/applications/${sAppId}`);
+  check('学生端可查自己那条投递的进度', sProgress.status === 200, `status=${sProgress.status}`);
+
+  // 学生端绝不能暴露的接口（防"公开站点泄漏整库简历"）
+  for (const [desc, path] of [
+    ['登录接口', '/api/v1/auth/login'],
+    ['账号管理', '/api/v1/clubs/x/accounts'],
+    ['数据看板', '/api/v1/dashboard'],
+    ['招新广场聚合', '/api/v1/square/clubs'],
+    ['社团简历库', `/api/v1/clubs/${sClubId}/applications`],
+    ['岗位投递列表', `/api/v1/positions/${sPosId}/applications`],
+    ['CSV 导出', `/api/v1/clubs/${sClubId}/applications/export`],
+    ['简历附件目录', '/uploads/anything.pdf'],
+    ['面试工作台', `/api/v1/clubs/${sClubId}/interview-board`],
+  ]) {
+    const r = await rawFetch(`${STUDENT}${path}`);
+    check(`学生端拒绝「${desc}」（404）`, r.status === 404, `status=${r.status}`);
+  }
+
+  // 社团端的 /portal.html 应重定向到学生端
+  const redirectRes = await fetch('http://localhost:3000/portal.html', { redirect: 'manual' });
+  check('社团端 /portal.html 重定向到学生端',
+    redirectRes.status === 302 && (redirectRes.headers.get('location') || '').includes(':3001'),
+    `status=${redirectRes.status} location=${redirectRes.headers.get('location')}`);
+
+  // 字典下发学生端地址，供侧边栏入口使用
+  const dictForSite = await api('/dict');
+  check('字典下发学生端地址', Boolean(dictForSite.body?.data?.studentSiteUrl),
+    JSON.stringify(dictForSite.body?.data?.studentSiteUrl));
+  check('字典标记学生端为独立站点', dictForSite.body?.data?.studentSiteEnabled === true);
+
   /* ---------- 清理 ---------- */
-  console.log('\n⑭ 清理测试数据');
+  console.log('\n⑮ 清理测试数据');
   // 恢复被测试改动的真实社团字段
   await api(`/clubs/${ownerClubId}/standard`, { method: 'PUT', token, body: originalStandard });
   const restored = (await api(`/clubs/${ownerClubId}`)).body?.data || {};

@@ -669,19 +669,25 @@ flowchart TB
             T1["Community-Server<br/>运行 node src/index.js"]
             T2["Community-Cpolar<br/>运行 cpolar 隧道"]
         end
-        N["node 进程<br/>监听 :3000"]
+        N["同一个 node 进程<br/>但监听两个端口"]
+        CLUB["社团端 :3000<br/>要密码 · 管理台"]
+        STU["学生端 :3001<br/>不要密码 · 投递页"]
         DBF[("server/data/club.db")]
-        UP[("server/uploads/")]
-        DIST["web/dist/<br/>前端构建产物"]
+        UP[("server/uploads/<br/>只有社团端能取")]
+        DIST["web/dist/"]
 
         T1 --> N
-        N --> DBF
-        N --> UP
-        N -->|"静态托管"| DIST
+        N --> CLUB
+        N --> STU
+        CLUB --> DBF
+        STU --> DBF
+        CLUB --> UP
+        CLUB --> DIST
+        STU --> DIST
     end
 
     B1["🧑‍💼 管理端浏览器<br/>http://localhost:3000"]
-    B2["👨‍🎓 学生手机/浏览器<br/>http://localhost:3000/portal.html"]
+    B2["👨‍🎓 学生手机<br/>http://localhost:3001"]
 
     B1 -->|"HTTP"| N
     B2 -->|"HTTP"| N

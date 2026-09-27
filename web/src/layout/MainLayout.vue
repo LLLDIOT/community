@@ -57,7 +57,10 @@
           <el-icon><Key /></el-icon> 登录社团账号
         </el-button>
 
-        <a href="/portal.html" target="_blank" rel="noopener" class="student-link">📱 学生投递端 ↗</a>
+        <a :href="studentUrl" target="_blank" rel="noopener" class="student-link">
+          📱 学生投递端 ↗
+        </a>
+        <div v-if="studentUrlIsSeparate" class="student-hint-sm">独立站点，学生无需管理密码</div>
       </div>
     </el-aside>
 
@@ -83,10 +86,30 @@ import { computed, ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { ElMessage } from 'element-plus';
 import { isLoggedIn, account, init as initAuth, logout as doLogout } from '../stores/auth.js';
+import { dictApi } from '../api/index.js';
 import LoginDialog from '../components/LoginDialog.vue';
 
 const route = useRoute();
 const loginVisible = ref(false);
+
+/**
+ * 学生投递端现在是**独立站点**（另一个端口/域名），不再挂在社团端路径下。
+ * 地址由后端下发（可用 STUDENT_SITE_URL 指定域名），没拿到时退回旧的相对路径。
+ */
+const studentUrl = ref('/portal.html');
+const studentUrlIsSeparate = ref(false);
+
+async function loadSiteInfo() {
+  try {
+    const d = await dictApi.get();
+    if (d?.studentSiteUrl) {
+      studentUrl.value = d.studentSiteUrl;
+      studentUrlIsSeparate.value = Boolean(d.studentSiteEnabled);
+    }
+  } catch {
+    /* 拿不到就沿用相对路径 */
+  }
+}
 
 const activeMenu = computed(() => {
   if (route.path.startsWith('/square')) return '/square';
@@ -105,6 +128,7 @@ async function onLogout() {
 
 onMounted(() => {
   initAuth();
+  loadSiteInfo();
 });
 </script>
 
@@ -196,6 +220,12 @@ onMounted(() => {
 }
 .student-link:hover {
   color: #fff;
+}
+.student-hint-sm {
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 11px;
+  text-align: center;
+  margin-top: 4px;
 }
 
 .layout-header {
