@@ -89,6 +89,12 @@
             <el-input v-model="form.contactEmail" placeholder="邮箱" style="width: 32%" />
           </div>
         </el-form-item>
+        <el-form-item v-if="!dialog.isEdit && createTokenRequired" label="开通口令">
+          <el-input v-model="form.createToken" placeholder="请输入管理员分配的开通口令" show-password />
+          <div class="field-hint">
+            本站已开启「创建社团需口令」——防止陌生人在公开站点随意注册社团。
+          </div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialog.visible = false">取消</el-button>
@@ -102,9 +108,12 @@
 import { onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { clubApi } from '../api/index.js';
+import { clubApi, dictApi } from '../api/index.js';
 
 const router = useRouter();
+
+/** 公网部署可开启「创建社团需口令」（后端 CLUB_CREATE_TOKEN），前端据此显示口令输入框 */
+const createTokenRequired = ref(false);
 
 const categoryOptions = [
   { value: 'technical', label: '技术类' },
@@ -125,7 +134,7 @@ const query = reactive({ keyword: '', category: '', page: 1 });
 
 const dialog = reactive({ visible: false, isEdit: false, saving: false, id: null });
 const formRef = ref();
-const emptyForm = () => ({ name: '', category: 'technical', scale: 0, description: '', contactName: '', contactPhone: '', contactEmail: '' });
+const emptyForm = () => ({ name: '', category: 'technical', scale: 0, description: '', contactName: '', contactPhone: '', contactEmail: '', createToken: '' });
 const form = reactive(emptyForm());
 const rules = {
   name: [{ required: true, message: '请输入社团名称', trigger: 'blur' }],
@@ -167,8 +176,22 @@ async function save() {
       await clubApi.update(dialog.id, payload);
       ElMessage.success('社团已更新');
     } else {
-      await clubApi.create(payload);
-      ElMessage.success('社团已创建');
+      const created = await clubApi.create(payload);
+      dialog.visible = false;
+      // 后端会一次性返回自动开通的社长账号，务必提示用户保存
+      if (created?.ownerAccount) {
+        await ElMessageBox.alert(
+          `社团「${created.name}」已创建，并自动开通了社长账号：\n\n` +
+            `账号：${created.ownerAccount.username}\n密码：${created.ownerAccount.password}\n\n` +
+            '密码只在本次显示，请立即保存。忘记可用 npm run account:reset 重置。',
+          '请保存你的登录凭据',
+          { confirmButtonText: '我已保存', type: 'success' }
+        );
+      } else {
+        ElMessage.success('社团已创建');
+      }
+      load();
+      return;
     }
     dialog.visible = false;
     load();
@@ -177,7 +200,15 @@ async function save() {
   }
 }
 
-onMounted(load);
+onMounted(async () => {
+  try {
+    const d = await dictApi.get();
+    createTokenRequired.value = Boolean(d?.clubCreateTokenRequired);
+  } catch {
+    /* 拿不到字典不影响浏览 */
+  }
+  load();
+});
 </script>
 
 <style scoped>
@@ -186,6 +217,12 @@ onMounted(load);
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+.field-hint {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.5;
+  margin-top: 4px;
 }
 .club-card {
   margin-bottom: 16px;

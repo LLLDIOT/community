@@ -32,6 +32,7 @@ community/
 │  ├─ DATA_MODEL.md     # 数据模型 + SQL DDL
 │  ├─ API.md            # REST API 设计
 │  └─ DEPLOY.md         # 部署指南
+│  └─ DEPLOY_CLOUD.md   # ☁️ 上云部署（买服务器 → 一键部署 → 搬数据）
 ├─ server/              # Express API（M1-M2 ✅）
 │  ├─ db/migrations/    # 001~004 建库/升级脚本（004 = 社团端改造）
 │  ├─ src/routes/       # 含 authRoutes / squareRoutes / decisionRoutes
@@ -78,6 +79,27 @@ docker compose up -d --build
 # → http://localhost:3000
 ```
 详见 [docs/DEPLOY.md](docs/DEPLOY.md)。
+
+### ☁️ 部署到公网（推荐：香港轻量服务器）
+
+想让同学随时打开、不再依赖你自己的电脑，见 **[docs/DEPLOY_CLOUD.md](docs/DEPLOY_CLOUD.md)**——
+从买服务器到上线只需三步：
+
+```bash
+# 1) 在服务器上（Ubuntu）克隆并一键部署（自动装 Docker、生成强密码、起服务、配每日备份）
+git clone --depth 1 https://github.com/LLLDIOT/community.git /opt/community
+bash /opt/community/deploy/provision.sh
+
+# 2) 在本机导出数据
+cd server && npm run data:export
+
+# 3) 上传后在服务器导入（先 docker compose down）
+scp -r server/export-* root@<服务器IP>:/root/
+# 服务器上：cd /opt/community/server && npm run data:import -- --from /root/export-xxx --force
+```
+
+> ⚠️ 公网部署前请确认已了解 [安全须知](docs/DEPLOY_CLOUD.md#6-安全须知重要)：
+> 全站密码必须开启、简历接口必须保持登录保护、学生端无法防冒名投递。
 
 ### 冒烟测试
 ```bash

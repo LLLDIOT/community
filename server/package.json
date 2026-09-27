@@ -11,7 +11,9 @@
     "migrate": "node scripts/check-migration.mjs",
     "smoke": "node scripts/smoke-club-console.mjs",
     "cleanup:smoke": "node scripts/cleanup-smoke.mjs",
-    "account:reset": "node scripts/reset-club-password.mjs"
+    "account:reset": "node scripts/reset-club-password.mjs",
+    "data:export": "node scripts/export-data.mjs",
+    "data:import": "node scripts/import-data.mjs"
   },
   "engines": {
     "node": ">=20"

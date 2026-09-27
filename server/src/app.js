@@ -65,6 +65,8 @@ export function createApp() {
         roles: authService.ROLES,
         roleLabels: authService.ROLE_LABELS,
         roleCapabilities: authService.ROLE_CAPABILITIES,
+        // 公网部署可开启「创建社团需口令」，前端据此显示口令输入框
+        clubCreateTokenRequired: Boolean(process.env.CLUB_CREATE_TOKEN),
       },
     });
   });

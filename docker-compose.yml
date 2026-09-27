@@ -2,13 +2,32 @@ services:
   community:
     build: .
     container_name: community
+    # 只监听本机回环是错的——公网访问需要暴露端口；用 APP_PORT 可换端口
     ports:
-      - "3000:3000"
+      - "${APP_PORT:-3000}:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
+      # ── 全站访问密码（公网部署必须设置强密码，否则等于裸奔）──
+      # 用 ":?" 语法让 compose 在变量缺失时直接报错退出，避免"以为设了其实没设"
+      - BASIC_AUTH_USER=${BASIC_AUTH_USER:-admin}
+      - BASIC_AUTH_PASS=${BASIC_AUTH_PASS:?必须在 .env 里设置 BASIC_AUTH_PASS（强密码）}
+      # 千万别在公网设成 1：那会关闭全站密码保护
+      - BASIC_AUTH_DISABLE=${BASIC_AUTH_DISABLE:-0}
+      # ── 社团账号会话有效期（小时）──
+      - CLUB_SESSION_HOURS=${CLUB_SESSION_HOURS:-12}
+      # ── 可选：设置后，创建社团必须带开通口令（防陌生人在公开站点随意注册社团）──
+      - CLUB_CREATE_TOKEN=${CLUB_CREATE_TOKEN:-}
+      # ── 可选：数据库路径（默认 /app/server/data/club.db，随卷持久化）──
+      - DB_PATH=${DB_PATH:-/app/server/data/club.db}
     volumes:
-      # 持久化 SQLite 数据库与上传的简历附件
+      # 持久化 SQLite 数据库与上传的简历附件（容器重建也不丢数据）
       - ./server/data:/app/server/data
       - ./server/uploads:/app/server/uploads
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
