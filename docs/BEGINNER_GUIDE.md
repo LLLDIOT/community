@@ -835,7 +835,7 @@ server/src/
    ├─ recruitmentService.js     招新批次、状态、删除保护
    ├─ positionService.js        岗位、招新人数校验
    ├─ resumeService.js          简历创建/更新
-   ├─ applicationService.js     ★ 状态机 + 归档 + 六维筛选 + 导出
+   ├─ applicationService.js     ★ 状态机 + 归档 + 多维筛选（七个维度）+ 导出
    ├─ matchService.js           技能匹配引擎
    ├─ dashboardService.js       看板统计聚合
    ├─ authService.js            ★ 社团账号：登录/会话/角色能力矩阵/口令派生/初始账号播种
