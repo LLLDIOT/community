@@ -33,6 +33,7 @@ community/
 │  ├─ API.md            # REST API 设计
 │  └─ DEPLOY.md         # 部署指南
 │  └─ DEPLOY_CLOUD.md   # ☁️ 上云部署（买服务器 → 一键部署 → 搬数据）
+│  └─ DEPLOY_FREE_VM.md # 🆓 免费方案（Oracle / GCP 永久免费 VM + 避坑清单）
 ├─ server/              # Express API（M1-M2 ✅）
 │  ├─ db/migrations/    # 001~004 建库/升级脚本（004 = 社团端改造）
 │  ├─ src/routes/       # 含 authRoutes / squareRoutes / decisionRoutes

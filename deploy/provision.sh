@@ -117,12 +117,65 @@ done
 
 # ─────────────────────────────────────────────────────────────
 log "5/6 防火墙"
+
+# ── 云厂商安全组（控制台里的）脚本改不了，只能提醒 ──
+CLOUD_HINT="云厂商控制台的【安全组 / 防火墙 / VCN 安全列表】"
+
+# ── ① Oracle Cloud 的系统级 iptables ──
+# Oracle 的 Ubuntu 镜像自带一套 iptables 规则：除 SSH 外全部 REJECT。
+# 这是"安全列表明明放行了、端口还是不通"的头号原因，所以这里自动补规则。
+# 注：Docker 发布的端口走 FORWARD 链，但 Oracle 镜像同时会拦 INPUT，
+#     两边都补上最省事。
+if command -v iptables >/dev/null 2>&1; then
+  ensure_ipt_accept() {
+    local port="$1"
+    if iptables -C INPUT -p tcp --dport "$port" -j ACCEPT 2>/dev/null; then
+      return 0
+    fi
+    # 插到第一条 REJECT/DROP 之前；没有就追加
+    local pos
+    pos="$(iptables -L INPUT --line-numbers -n 2>/dev/null | awk '/REJECT|DROP/ {print $1; exit}')"
+    if [[ -n "$pos" ]]; then
+      iptables -I INPUT "$pos" -p tcp --dport "$port" -j ACCEPT
+    else
+      iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
+    fi
+  }
+  ensure_ipt_accept "${APP_PORT:-3000}"
+  ensure_ipt_accept "${STUDENT_APP_PORT:-3001}"
+
+  # 让规则重启后仍在
+  if ! command -v netfilter-persistent >/dev/null 2>&1; then
+    echo 'iptables-persistent iptables-persistent/autosave_v4 boolean true' | debconf-set-selections 2>/dev/null || true
+    echo 'iptables-persistent iptables-persistent/autosave_v6 boolean true' | debconf-set-selections 2>/dev/null || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iptables-persistent >/dev/null 2>&1 || true
+  fi
+  if command -v netfilter-persistent >/dev/null 2>&1; then
+    netfilter-persistent save >/dev/null 2>&1 || true
+    echo "已写入 iptables 规则并持久化（${APP_PORT:-3000} / ${STUDENT_APP_PORT:-3001}）"
+  else
+    mkdir -p /etc/iptables && iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+    echo "已写入 iptables 规则（未能安装持久化工具，重启后可能失效）"
+  fi
+fi
+
+# ── ② Debian/Ubuntu 的 ufw（若启用了）──
 if command -v ufw >/dev/null 2>&1; then
   ufw allow "${APP_PORT:-3000}/tcp" >/dev/null 2>&1 || true
   ufw allow "${STUDENT_APP_PORT:-3001}/tcp" >/dev/null 2>&1 || true
-  echo "已放行 ufw ${APP_PORT:-3000}/tcp（社团端）与 ${STUDENT_APP_PORT:-3001}/tcp（学生端）"
+  echo "已放行 ufw：${APP_PORT:-3000}/tcp（社团端）与 ${STUDENT_APP_PORT:-3001}/tcp（学生端）"
 fi
-warn "别忘了在云厂商控制台的【安全组/防火墙】里也放行这两个端口，否则外网仍然打不开！"
+
+# ── ③ firewalld（CentOS 系；本项目主要面向 Ubuntu，顺手兼容）──
+if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state >/dev/null 2>&1; then
+  firewall-cmd --permanent --add-port="${APP_PORT:-3000}/tcp" >/dev/null 2>&1 || true
+  firewall-cmd --permanent --add-port="${STUDENT_APP_PORT:-3001}/tcp" >/dev/null 2>&1 || true
+  firewall-cmd --reload >/dev/null 2>&1 || true
+  echo "已放行 firewalld 两个端口"
+fi
+
+warn "还需要在 ${CLOUD_HINT} 放行 TCP ${APP_PORT:-3000} 与 ${STUDENT_APP_PORT:-3001}，否则外网仍然打不开！"
+warn "Oracle Cloud 尤其注意：VCN → 安全列表 → 入站规则，要单独加这两条。"
 
 # ─────────────────────────────────────────────────────────────
 log "6/6 每日自动备份"
