@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import * as decisionService from '../services/decisionService.js';
 import { ok } from '../utils/respond.js';
-import { requireCapability } from '../middlewares/clubAuth.js';
+import {
+  requireCapability,
+  requireOwnClub,
+  requireOwnClubVia,
+  requireApplicationClub,
+} from '../middlewares/clubAuth.js';
 
 const router = Router();
 
@@ -21,44 +26,68 @@ const router = Router();
  * 服务层再校验"这条投递是否属于你的社团"，双重把关。
  */
 
-router.get('/clubs/:clubId/interview-board', requireCapability('application:read'), (req, res) => {
-  ok(
-    res,
-    decisionService.getInterviewBoard(req.params.clubId, {
-      recruitmentId: req.query.recruitmentId || '',
-      positionId: req.query.positionId || '',
-      keyword: req.query.keyword || '',
-      onlyUndecided: req.query.onlyUndecided === '1' || req.query.onlyUndecided === 'true',
-    })
-  );
-});
+router.get(
+  '/clubs/:clubId/interview-board',
+  requireCapability('application:read'),
+  requireOwnClub('clubId'),
+  (req, res) => {
+    ok(
+      res,
+      decisionService.getInterviewBoard(req.params.clubId, {
+        recruitmentId: req.query.recruitmentId || '',
+        positionId: req.query.positionId || '',
+        keyword: req.query.keyword || '',
+        onlyUndecided: req.query.onlyUndecided === '1' || req.query.onlyUndecided === 'true',
+      })
+    );
+  }
+);
 
-router.get('/applications/:id/decision', requireCapability('application:read'), (req, res) => {
+router.get('/applications/:id/decision', requireApplicationClub('application:read'), (req, res) => {
   ok(res, decisionService.getDecisionDetail(req.params.id));
 });
 
-router.patch('/applications/:id/decision', requireCapability('application:decide'), (req, res) => {
+router.patch('/applications/:id/decision', requireApplicationClub('application:decide'), (req, res) => {
   ok(res, decisionService.setDecision(req.params.id, req.body || {}, req.account));
 });
 
-router.get('/applications/:id/adjust-suggestions', requireCapability('application:decide'), (req, res) => {
-  ok(res, decisionService.suggestAdjust(req.params.id, req.account));
-});
+router.get(
+  '/applications/:id/adjust-suggestions',
+  requireApplicationClub('application:decide'),
+  (req, res) => {
+    ok(res, decisionService.suggestAdjust(req.params.id, req.account));
+  }
+);
 
-router.post('/applications/:id/adjust', requireCapability('application:decide'), (req, res) => {
+router.post('/applications/:id/adjust', requireApplicationClub('application:decide'), (req, res) => {
   ok(res, decisionService.applyAdjust(req.params.id, req.body || {}, req.account));
 });
 
-router.get('/positions/:positionId/waitlist', requireCapability('application:read'), (req, res) => {
-  ok(res, decisionService.listWaitlist(req.params.positionId));
-});
+router.get(
+  '/positions/:positionId/waitlist',
+  requireCapability('application:read'),
+  requireOwnClubVia('position', 'positionId'),
+  (req, res) => {
+    ok(res, decisionService.listWaitlist(req.params.positionId));
+  }
+);
 
-router.post('/positions/:positionId/promote-waitlist', requireCapability('application:decide'), (req, res) => {
-  ok(res, decisionService.promoteWaitlist(req.params.positionId, req.body || {}, req.account));
-});
+router.post(
+  '/positions/:positionId/promote-waitlist',
+  requireCapability('application:decide'),
+  requireOwnClubVia('position', 'positionId'),
+  (req, res) => {
+    ok(res, decisionService.promoteWaitlist(req.params.positionId, req.body || {}, req.account));
+  }
+);
 
-router.get('/positions/:positionId/progress', requireCapability('application:read'), (req, res) => {
-  ok(res, decisionService.refreshPositionProgress(req.params.positionId));
-});
+router.get(
+  '/positions/:positionId/progress',
+  requireCapability('application:read'),
+  requireOwnClubVia('position', 'positionId'),
+  (req, res) => {
+    ok(res, decisionService.refreshPositionProgress(req.params.positionId));
+  }
+);
 
 export default router;

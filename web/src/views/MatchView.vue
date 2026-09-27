@@ -1,5 +1,23 @@
 <template>
   <div class="match-view">
+    <!-- 匹配要读取简历技能与投递数据（PII），必须登录本社团账号 -->
+    <el-alert
+      v-if="!isLoggedIn"
+      type="warning"
+      show-icon
+      :closable="false"
+      title="请先登录社团账号"
+      class="login-gate"
+    >
+      <template #default>
+        <div class="gate-row">
+          <span>智能匹配需要读取本社团收到的简历，请先登录。</span>
+          <el-button size="small" type="primary" @click="loginVisible = true">去登录</el-button>
+        </div>
+      </template>
+    </el-alert>
+
+    <template v-if="isLoggedIn">
     <!-- 说明横幅 -->
     <el-alert
       type="info"
@@ -115,13 +133,18 @@
         </el-table-column>
       </el-table>
     </el-card>
+    </template>
+
+    <LoginDialog v-model="loginVisible" @success="onLoggedIn" />
   </div>
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { clubApi, matchApi, applicationApi } from '../api/index.js';
 import { ElMessage } from 'element-plus';
+import { isLoggedIn, account, init as initAuth } from '../stores/auth.js';
+import LoginDialog from '../components/LoginDialog.vue';
 
 const clubs = ref([]);
 const resumes = ref([]);
@@ -130,6 +153,7 @@ const resumeId = ref('');
 const matchResult = ref(null);
 const suggestions = ref([]);
 const clubMatchesLoaded = ref(false);
+const loginVisible = ref(false);
 
 const STATUS_LABELS = {
   new: '新收到', screening: '待筛选', interviewing: '面试中',
@@ -153,12 +177,40 @@ async function loadClubMatches() {
 }
 
 onMounted(async () => {
-  const [clubData] = await Promise.all([
-    clubApi.list({ page: 1, pageSize: 100 }),
-    loadAllResumes(),
-  ]);
-  clubs.value = clubData.list;
+  await initAuth();
+  if (!isLoggedIn.value) return;
+  await loadAll();
 });
+
+async function loadAll() {
+  const clubData = await clubApi.list({ page: 1, pageSize: 100 });
+  // 匹配要用到简历内容，受权限保护：只能对自己社团的数据做匹配
+  const mine = account.value?.clubId;
+  clubs.value = clubData.list.filter((c) => c.id === mine);
+  clubId.value = mine || '';
+  await loadAllResumes();
+}
+
+async function onLoggedIn() {
+  await initAuth();
+  await loadAll();
+}
+
+watch(
+  () => account.value?.clubId || '',
+  async (id, prev) => {
+    if (id === prev) return;
+    if (!id) {
+      resumes.value = [];
+      clubs.value = [];
+      matchResult.value = null;
+      suggestions.value = [];
+      clubMatchesLoaded.value = false;
+      return;
+    }
+    await loadAll();
+  }
+);
 
 /** 简历没有列表接口：从各社团应用数据里搜集，或直接提示新建 */
 async function loadAllResumes() {
@@ -166,7 +218,9 @@ async function loadAllResumes() {
   try {
     const clubsData = await clubApi.list({ page: 1, pageSize: 100 });
     const seen = new Map();
-    for (const c of clubsData.list) {
+    // 只遍历自己社团——别的社团数据无权访问（简历 PII）
+    const mine = clubsData.list.filter((c) => c.id === account.value?.clubId);
+    for (const c of mine) {
       const apps = await applicationApi.listByClub(c.id, { page: 1, pageSize: 100 });
       for (const a of apps.list) {
         const det = await applicationApi.detail(a.id);
@@ -242,4 +296,12 @@ async function loadAllResumes() {
 .match-score-col { flex-shrink: 0; }
 .muted { color: #c0c4cc; font-size: 12px; }
 .suggest { font-weight: 600; color: #67c23a; }
+.login-gate {
+  margin-bottom: 12px;
+}
+.gate-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
 </style>

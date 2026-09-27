@@ -87,6 +87,71 @@ export function requireOwnClub(clubIdParam = 'clubId') {
  * capability 可选，给了就顺带校验角色能力。
  */
 export function requireApplicationClub(capability = '') {
+  return requireOwnClubVia('application', 'id', capability);
+}
+
+/* ------------------------------------------------------------------ */
+/* 归属解析：URL 里只有资源 id 时，反查它属于哪个社团                    */
+/* ------------------------------------------------------------------ */
+
+const CLUB_RESOLVERS = {
+  application: (id) =>
+    db
+      .prepare(
+        `SELECT r.club_id FROM application a
+         JOIN position p ON p.id = a.position_id
+         JOIN recruitment r ON r.id = p.recruitment_id
+         WHERE a.id = ?`
+      )
+      .get(id)?.club_id,
+
+  recruitment: (id) => db.prepare('SELECT club_id FROM recruitment WHERE id = ?').get(id)?.club_id,
+
+  position: (id) =>
+    db
+      .prepare(
+        `SELECT r.club_id FROM position p
+         JOIN recruitment r ON r.id = p.recruitment_id WHERE p.id = ?`
+      )
+      .get(id)?.club_id,
+
+  /**
+   * 简历是个特例：它不属于任何社团，而是一份可被多个社团投递的资料。
+   * 因此判断依据是"这份简历有没有投到我的社团"——有才让你读，
+   * 没投过就看不到（学生刚创建、还没投的简历只有学生自己用 id 换回来）。
+   *
+   * 唯一的例外是 **DELETE 一份"孤儿简历"**（一条投递都没有，学生填一半就走了／
+   * 投递被删光后剩下的空壳）：此时没有任何社团对它还有主张，允许已登录的社团账号
+   * 把它清掉——否则这种垃圾数据只能靠改数据库才能删。读/改仍按严格规则。
+   */
+  resume: (id, account, req) => {
+    const mine = db
+      .prepare(
+        `SELECT 1 AS ok FROM application a
+         JOIN position p ON p.id = a.position_id
+         JOIN recruitment r ON r.id = p.recruitment_id
+         WHERE a.resume_id = ? AND r.club_id = ? LIMIT 1`
+      )
+      .get(id, account.clubId);
+    if (mine) return account.clubId;
+
+    if (req?.method === 'DELETE') {
+      const anyApp = db.prepare('SELECT 1 AS ok FROM application WHERE resume_id = ? LIMIT 1').get(id);
+      if (!anyApp) return account.clubId; // 孤儿简历：谁都可以清理
+    }
+    return null;
+  },
+};
+
+/**
+ * 通用版 requireOwnClub：URL 里没有 clubId，用 kind + 参数名反查归属。
+ * 这堵住了"知道 id 就能读别人社团简历/删别人社团"的越权路径——
+ * 社团 id 在公开的招新广场里是明摆着的，不能当作访问凭据。
+ */
+export function requireOwnClubVia(kind, paramName, capability = '') {
+  const resolve = CLUB_RESOLVERS[kind];
+  if (!resolve) throw new Error(`requireOwnClubVia: 未知资源类型 ${kind}`);
+
   return (req, res, next) => {
     const account = req.account || authService.resolveSession(readToken(req));
     if (!account) return next(unauthorized('请先登录社团账号'));
@@ -98,18 +163,13 @@ export function requireApplicationClub(capability = '') {
       );
     }
 
-    const row = db
-      .prepare(
-        `SELECT rec.club_id FROM application app
-         JOIN position pos ON pos.id = app.position_id
-         JOIN recruitment rec ON rec.id = pos.recruitment_id
-         WHERE app.id = ?`
-      )
-      .get(req.params.id);
+    const targetId = req.params?.[paramName];
+    if (!targetId) return next(forbidden('缺少目标资源标识'));
 
-    if (!row) return next(notFound('投递记录不存在'));
-    if (row.club_id !== account.clubId) {
-      return next(forbidden('只能处理自己社团收到的投递'));
+    const clubId = resolve(targetId, account, req);
+    if (!clubId) {
+      // 资源不存在、或不属于登录者的社团 —— 一律按"无权访问"处理，不泄漏存在性
+      return next(forbidden('该数据不属于你所属的社团'));
     }
     next();
   };

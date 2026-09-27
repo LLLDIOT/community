@@ -5,9 +5,19 @@
         <span class="page-title">{{ club.name || '社团详情' }}</span>
       </template>
       <template #extra>
-        <el-button type="primary" plain @click="editVisible = true">编辑社团资料</el-button>
+        <el-button type="primary" plain :disabled="!canEditClub" @click="editVisible = true">编辑社团资料</el-button>
       </template>
     </el-page-header>
+
+    <!-- 只读浏览对访客开放；写操作需要登录本社团账号 -->
+    <el-alert
+      v-if="!canEditClub"
+      type="info"
+      show-icon
+      :closable="false"
+      class="mt-16"
+      :title="isMine ? '当前角色只能查看：你没有修改社团资料的权限' : '只读浏览：登录本社团账号后才能修改资料 / 批次 / 岗位'"
+    />
 
     <!-- 社团概要 -->
     <el-card shadow="never" class="mt-16">
@@ -33,7 +43,7 @@
       <template #header>
         <div class="card-head">
           <span class="card-title">招新批次</span>
-          <el-button type="primary" size="small" @click="openRecDialog()">
+          <el-button type="primary" size="small" :disabled="!canEditRec" @click="openRecDialog()">
             <el-icon><Plus /></el-icon>&nbsp;新建招新批次
           </el-button>
         </div>
@@ -59,6 +69,7 @@
             size="small"
             type="success"
             plain
+            :disabled="!canEditRec"
             @click="changeRecStatus(rec, 'open')"
           >开始招新</el-button>
           <el-button
@@ -66,10 +77,11 @@
             size="small"
             type="info"
             plain
+            :disabled="!canEditRec"
             @click="changeRecStatus(rec, 'closed')"
           >结束招新</el-button>
-          <el-button size="small" plain @click="openRecDialog(rec)">编辑</el-button>
-          <el-button size="small" type="danger" plain @click="removeRec(rec)">删除</el-button>
+          <el-button size="small" plain :disabled="!canEditRec" @click="openRecDialog(rec)">编辑</el-button>
+          <el-button size="small" type="danger" plain :disabled="!canEditRec" @click="removeRec(rec)">删除</el-button>
 
           <!-- 岗位列表 -->
           <el-table :data="rec.positions" size="small" class="pos-table">
@@ -102,8 +114,8 @@
             <el-table-column label="操作" width="220" align="right">
               <template #default="{ row }">
                 <el-button size="small" link type="primary" @click="viewPositionApps(rec, row)">简历</el-button>
-                <el-button size="small" link @click="openPosDialog(rec, row)">编辑</el-button>
-                <el-button size="small" link type="danger" @click="removePos(row)">删除</el-button>
+                <el-button size="small" link :disabled="!canEditPos" @click="openPosDialog(rec, row)">编辑</el-button>
+                <el-button size="small" link type="danger" :disabled="!canEditPos" @click="removePos(row)">删除</el-button>
               </template>
             </el-table-column>
           </el-table>
@@ -112,6 +124,7 @@
             type="primary"
             plain
             class="add-pos"
+            :disabled="!canEditPos"
             @click="openPosDialog(rec)"
           >
             <el-icon><Plus /></el-icon>&nbsp;添加岗位需求
@@ -133,7 +146,7 @@
       </el-form>
       <template #footer>
         <el-button @click="editVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveClub">保存</el-button>
+        <el-button type="primary" :disabled="!canEditClub" @click="saveClub">保存</el-button>
       </template>
     </el-dialog>
 
@@ -147,7 +160,7 @@
       </el-form>
       <template #footer>
         <el-button @click="recDialog.visible = false">取消</el-button>
-        <el-button type="primary" @click="saveRec">保存</el-button>
+        <el-button type="primary" :disabled="!canEditRec" @click="saveRec">保存</el-button>
       </template>
     </el-dialog>
 
@@ -164,21 +177,31 @@
       </el-form>
       <template #footer>
         <el-button @click="posDialog.visible = false">取消</el-button>
-        <el-button type="primary" @click="savePos">保存</el-button>
+        <el-button type="primary" :disabled="!canEditPos" @click="savePos">保存</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { clubApi, recruitmentApi, positionApi } from '../api/index.js';
+import { isLoggedIn, account, can, init as initAuth } from '../stores/auth.js';
 
 const route = useRoute();
 const router = useRouter();
 const clubId = route.params.id;
+
+/**
+ * 写操作都要求登录且限本社团（后端强制），这里同步禁用按钮避免"点了才报错"。
+ * 只读浏览保持开放：社团资料、批次、岗位对访客可见。
+ */
+const isMine = computed(() => isLoggedIn.value && account.value?.clubId === clubId);
+const canEditClub = computed(() => isMine.value && can('club:edit'));
+const canEditRec = computed(() => isMine.value && can('recruitment:edit'));
+const canEditPos = computed(() => isMine.value && can('position:edit'));
 
 const categoryOptions = [
   { value: 'technical', label: '技术类' }, { value: 'organizing', label: '组织策划类' },
@@ -328,7 +351,10 @@ function viewPositionApps(rec, pos) {
   });
 }
 
-onMounted(load);
+onMounted(async () => {
+  await initAuth();
+  await load();
+});
 </script>
 
 <style scoped>

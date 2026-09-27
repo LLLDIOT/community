@@ -1,6 +1,7 @@
 import { db } from '../db/connection.js';
 import { genId, nowIso } from '../utils/id.js';
 import { BizError, notFound, badRequest } from '../utils/errors.js';
+import { ensureSeedAccountsForClub } from './authService.js';
 
 /** 从请求体提取可更新字段（白名单，防止注入无关字段） */
 function pickClubFields(body) {
@@ -107,6 +108,30 @@ export function createClub(body) {
   });
 
   return getClubById(id);
+}
+
+/**
+ * 创建社团 + 自动开通社长账号（公网自服务开通用）
+ *
+ * 为什么必须一起做：账号播种原本只在服务启动时执行。云端全新空库启动时一个社团都没有，
+ * 于是也不会播种任何账号；等用户建好第一个社团，却发现"没有账号可登录"，
+ * 而登录又是改社团资料/录用决策的前提——第一次使用就卡死。
+ * 所以这里建完社团立刻给它开一个 owner 账号，并把凭据**一次性**返回给创建者。
+ *
+ * 返回里的 credentials 只在此刻出现这一次；服务端只存 scrypt 派生值，之后无法再取回明文。
+ */
+export function createClubWithOwner(body) {
+  const club = createClub(body);
+  const created = ensureSeedAccountsForClub(club.id);
+  return {
+    ...club,
+    ownerAccount: created
+      ? { username: created.username, password: created.password, role: 'owner' }
+      : null,
+    notice: created
+      ? '已自动为你的社团创建社长账号，密码只在本次响应中出现，请立即保存；忘记可用 npm run account:reset 重置。'
+      : '该社团已存在账号。',
+  };
 }
 
 /**

@@ -268,7 +268,7 @@ const cleanup = { applicationIds: [], resumeIds: [], accountIds: [] };
     check('原投递标注为调剂', adj.body?.data?.adjusted?.decision === 'adjust');
     check('原投递记录调剂去向', adj.body?.data?.adjusted?.adjustPositionId === posB.id);
     // 就近验证「调剂」筛选（此时该记录确实处于 adjust 状态）
-    const adjFilter = await api(`/clubs/${ownerClubId}/applications?decision=adjust&pageSize=100`);
+    const adjFilter = await api(`/clubs/${ownerClubId}/applications?decision=adjust&pageSize=100`, { token });
     check('按「调剂」筛选命中该投递',
       (adjFilter.body?.data?.list || []).some((r) => r.id === appId),
       JSON.stringify((adjFilter.body?.data?.list || []).map((r) => r.id)));
@@ -472,13 +472,14 @@ const cleanup = { applicationIds: [], resumeIds: [], accountIds: [] };
 
   /* ---------- ⑪ 简历库：面试结论筛选与导出 ---------- */
   console.log('\n⑪ 简历库：面试结论筛选 / 统计 / 导出');
-  const all = await api(`/clubs/${ownerClubId}/applications?pageSize=100`);
+  // 注：简历库现在含 PII，必须带 token（未登录被拒已在 ⑫ 覆盖）
+  const all = await api(`/clubs/${ownerClubId}/applications?pageSize=100`, { token });
   check('简历库返回 decisionCounts', Boolean(all.body?.data?.decisionCounts),
     JSON.stringify(all.body?.data?.decisionCounts));
   check('列表带面试结论字段',
     all.body?.data?.list?.every((r) => 'decision' in r && 'waitlist_rank' in r));
 
-  const hiredList = await api(`/clubs/${ownerClubId}/applications?decision=hired&pageSize=100`);
+  const hiredList = await api(`/clubs/${ownerClubId}/applications?decision=hired&pageSize=100`, { token });
   check('按「录用」筛选可用', hiredList.status === 200, `status=${hiredList.status}`);
   check('录用筛选结果都带 decision=hired',
     (hiredList.body?.data?.list || []).every((r) => r.decision === 'hired'),
@@ -487,25 +488,142 @@ const cleanup = { applicationIds: [], resumeIds: [], accountIds: [] };
     (hiredList.body?.data?.list || []).some((r) => r.id === appId2));
 
   // 注：前面的用例已把该投递从 adjust 改成了其他结论，这里只校验筛选器本身的正确性
-  const adjustList = await api(`/clubs/${ownerClubId}/applications?decision=adjust&pageSize=100`);
+  const adjustList = await api(`/clubs/${ownerClubId}/applications?decision=adjust&pageSize=100`, { token });
   check('「调剂」筛选只返回调剂记录',
     (adjustList.body?.data?.list || []).every((r) => r.decision === 'adjust'),
     JSON.stringify((adjustList.body?.data?.list || []).map((r) => r.decision)));
 
-  const undecided = await api(`/clubs/${ownerClubId}/applications?decision=__undecided__&pageSize=100`);
+  const undecided = await api(`/clubs/${ownerClubId}/applications?decision=__undecided__&pageSize=100`, { token });
   check('「未决定」筛选排除已决策记录',
     (undecided.body?.data?.list || []).every((r) => r.decision === ''),
     JSON.stringify((undecided.body?.data?.list || []).map((r) => r.decision)));
 
-  const csvRes = await fetch(`${BASE}/clubs/${ownerClubId}/applications/export?decision=hired`);
+  const csvRes = await fetch(`${BASE}/clubs/${ownerClubId}/applications/export?decision=hired`, {
+    headers: { 'X-Club-Token': token },
+  });
   const csvText = await csvRes.text();
   check('CSV 导出包含面试结论列', csvText.includes('面试结论'), csvText.slice(0, 120));
   check('CSV 导出包含候补序号列', csvText.includes('候补序号'));
   check('CSV 导出包含调剂去向列', csvText.includes('调剂去向'));
   check('CSV 中录用人显示为「录用」', csvText.includes('录用'), csvText.split('\r\n').slice(0, 2).join(' | '));
 
+  /* ---------- ⑫ 公网部署安全：简历 PII 不可匿名读取 / 破坏性操作需鉴权 ---------- */
+  console.log('\n⑫ 公网部署安全（PII 与破坏性操作）');
+
+  // 社团 id / 岗位 id 在公开广场里是明摆着的，不能当访问凭据
+  const pubClubId = (await api('/square/clubs')).body?.data?.list?.[0]?.id;
+  const pubDetail = await api(`/square/clubs/${pubClubId}`);
+  const pubPosId = (pubDetail.body?.data?.recruitments || [])[0]?.positions?.[0]?.id;
+  check('广场公开提供社团/岗位 id（因此不能当凭据）', Boolean(pubClubId && pubPosId));
+
+  const anonList = await expectFail(`/clubs/${ownerClubId}/applications?pageSize=5`);
+  check('未登录读简历库被拒（401，防遍历 id 拉 PII）', anonList.status === 401, `status=${anonList.status}`);
+
+  const anonPosApps = await expectFail(`/positions/${pubPosId}/applications`);
+  check('未登录读岗位投递列表被拒（401）', anonPosApps.status === 401, `status=${anonPosApps.status}`);
+
+  const anonExport = await expectFail(`/clubs/${ownerClubId}/applications/export`);
+  check('未登录导出简历 CSV 被拒（401）', anonExport.status === 401, `status=${anonExport.status}`);
+
+  const anonResumeRead = await expectFail(`/resumes/${resumeId}`, {});
+  check('未登录读简历详情被拒（401）', anonResumeRead.status === 401, `status=${anonResumeRead.status}`);
+
+  const anonBoard = await expectFail(`/clubs/${ownerClubId}/interview-board`);
+  check('未登录读面试工作台被拒（401）', anonBoard.status === 401, `status=${anonBoard.status}`);
+
+  const anonMatch = await expectFail(`/clubs/${ownerClubId}/match-applicants`);
+  check('未登录读转岗建议被拒（401）', anonMatch.status === 401, `status=${anonMatch.status}`);
+
+  const anonClubUpdate = await expectFail(`/clubs/${ownerClubId}`, { method: 'PUT', body: { description: 'x' } });
+  check('未登录改社团资料被拒（401）', anonClubUpdate.status === 401, `status=${anonClubUpdate.status}`);
+
+  const anonClubDelete = await expectFail(`/clubs/${ownerClubId}`, { method: 'DELETE' });
+  check('未登录删社团被拒（401，否则可级联清空整个社团数据）', anonClubDelete.status === 401,
+    `status=${anonClubDelete.status}`);
+
+  const anonRecCreate = await expectFail(`/clubs/${ownerClubId}/recruitments`, {
+    method: 'POST', body: { title: '匿名批次' },
+  });
+  check('未登录建招新批次被拒（401）', anonRecCreate.status === 401, `status=${anonRecCreate.status}`);
+
+  const anonPosCreate = await expectFail(`/recruitments/${pubDetail.body.data.recruitments[0].id}/positions`, {
+    method: 'POST', body: { title: '匿名岗位', headcount: 1 },
+  });
+  check('未登录建岗位被拒（401）', anonPosCreate.status === 401, `status=${anonPosCreate.status}`);
+
+  // 学生端查自己投递进度必须仍然可用（无身份体系，靠随机 id 作能力凭据）
+  const anonAppDetail = await api(`/applications/${appId}`);
+  check('学生端查投递进度保持开放（能力 URL）', anonAppDetail.status === 200, `status=${anonAppDetail.status}`);
+
+  // 跨社团读（用别社团 token 读我的简历库）
+  if (clubs.length > 1) {
+    const otherClub = clubs.find((c) => c.id !== ownerClubId);
+    const otherAccounts2 = await import('node:fs').then((fs) =>
+      fs.readFileSync(new URL('../data/initial-accounts.txt', import.meta.url), 'utf8')
+    );
+    const line2 = otherAccounts2.split(/\r?\n/).filter((l) => l.includes(otherClub?.name) && !l.startsWith('#')).pop();
+    const oUser2 = (line2?.split('\t')[1] || '').replace('账号=', '');
+    const oPass2 = (line2?.split('\t')[2] || '').replace('密码=', '');
+    if (oUser2 && oPass2) {
+      const oTok = (await api('/auth/login', { method: 'POST', body: { username: oUser2, password: oPass2 } }))
+        .body?.data?.token;
+      const crossRead = await expectFail(`/clubs/${ownerClubId}/applications?pageSize=5`, { token: oTok });
+      check('别社团账号读我的简历库被拒（403）', crossRead.status === 403, `status=${crossRead.status}`);
+
+      const crossExport = await expectFail(`/clubs/${ownerClubId}/applications/export`, { token: oTok });
+      check('别社团账号导出我的简历 CSV 被拒（403）', crossExport.status === 403, `status=${crossExport.status}`);
+
+      const crossDelete = await expectFail(`/clubs/${ownerClubId}`, { method: 'DELETE', token: oTok });
+      check('别社团账号删我的社团被拒（403）', crossDelete.status === 403, `status=${crossDelete.status}`);
+
+      const crossResume = await expectFail(`/resumes/${resumeId}`, { token: oTok });
+      check('别社团账号读我收到的简历被拒（403）', crossResume.status === 403, `status=${crossResume.status}`);
+    }
+  }
+
+  // 本人读自己的简历库应当正常（不能一刀切全拒）
+  const ownerRead = await api(`/clubs/${ownerClubId}/applications?pageSize=5`, { token });
+  check('本社团账号读自己的简历库正常', ownerRead.status === 200, `status=${ownerRead.status}`);
+
+  /* ---------- ⑬ 首次开通：新建社团自动获得社长账号 ---------- */
+  console.log('\n⑬ 首次开通引导（云端空库场景）');
+  const freshName = `冒烟测试·云开通社团_${Date.now()}`;
+  const createRes = await api('/clubs', {
+    method: 'POST',
+    body: { name: freshName, scale: 50, scaleLabel: '20-50', category: 'academic', description: '冒烟测试' },
+  });
+  check('未登录可创建社团（自服务开通）', createRes.status === 200 || createRes.status === 201,
+    JSON.stringify(createRes.body).slice(0, 200));
+  const freshClubId = createRes.body?.data?.id;
+  const ownerAcc = createRes.body?.data?.ownerAccount;
+  check('创建社团时自动开通社长账号', Boolean(ownerAcc?.username && ownerAcc?.password),
+    JSON.stringify({ username: ownerAcc?.username, hasPassword: Boolean(ownerAcc?.password) }));
+  let freshToken = '';
+  if (ownerAcc?.username) {
+    const freshLogin = await api('/auth/login', {
+      method: 'POST',
+      body: { username: ownerAcc.username, password: ownerAcc.password },
+    });
+    check('用返回的凭据可立即登录（不会第一次就卡死）', freshLogin.status === 200,
+      JSON.stringify(freshLogin.body).slice(0, 160));
+    freshToken = freshLogin.body?.data?.token || '';
+    if (freshLogin.body?.data?.account) {
+      check('新账号角色为社长且绑定到该社团',
+        freshLogin.body.data.account.role === 'owner' &&
+          freshLogin.body.data.account.clubId === freshClubId);
+    }
+  }
+  if (freshClubId && freshToken) {
+    // 用"别社团"的 token 删它应当被拒
+    const crossDel = await expectFail(`/clubs/${freshClubId}`, { method: 'DELETE', token });
+    check('别社团账号不能删我的新社团（403）', crossDel.status === 403, `status=${crossDel.status}`);
+    // 用自己的 token 才能删
+    const delFresh = await api(`/clubs/${freshClubId}`, { method: 'DELETE', token: freshToken });
+    check('清理：本社团账号可删除该测试社团', delFresh.status === 200, `status=${delFresh.status}`);
+  }
+
   /* ---------- 清理 ---------- */
-  console.log('\n⑫ 清理测试数据');
+  console.log('\n⑭ 清理测试数据');
   // 恢复被测试改动的真实社团字段
   await api(`/clubs/${ownerClubId}/standard`, { method: 'PUT', token, body: originalStandard });
   const restored = (await api(`/clubs/${ownerClubId}`)).body?.data || {};

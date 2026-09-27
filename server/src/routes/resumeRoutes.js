@@ -2,9 +2,17 @@ import { Router } from 'express';
 import * as resumeService from '../services/resumeService.js';
 import { uploadAttachment } from '../middlewares/upload.js';
 import { ok } from '../utils/respond.js';
+import { requireCapability, requireOwnClubVia } from '../middlewares/clubAuth.js';
 import path from 'node:path';
 
 const router = Router();
+
+/**
+ * 简历含姓名/电话/邮箱/正文，属 PII：
+ *  - POST /        保持开放（学生端自助投递必须能建简历）
+ *  - GET/PUT/DELETE /:id  要求登录，且这份简历必须投过你的社团才放行
+ *    （简历不属于任何社团，判断依据是"有没有投到我这里"）
+ */
 
 /**
  * 创建简历：
@@ -29,16 +37,16 @@ router.post('/', uploadAttachment.single('file'), (req, res) => {
   ok(res, resumeService.createResume(body), 201);
 });
 
-router.get('/:id', (req, res) => {
+router.get('/:id', requireCapability('application:read'), requireOwnClubVia('resume', 'id'), (req, res) => {
   ok(res, resumeService.getResumeById(req.params.id));
 });
 
-router.put('/:id', (req, res) => {
+router.put('/:id', requireCapability('application:read'), requireOwnClubVia('resume', 'id'), (req, res) => {
   ok(res, resumeService.updateResume(req.params.id, req.body || {}));
 });
 
 // 删除简历（有投递时拒绝，避免级联误删面试历史）
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireCapability('application:read'), requireOwnClubVia('resume', 'id'), (req, res) => {
   ok(res, resumeService.deleteResume(req.params.id));
 });
 

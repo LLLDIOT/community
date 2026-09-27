@@ -19,10 +19,18 @@ router.get('/:id', (req, res) => {
   ok(res, clubService.getClubDetail(req.params.id));
 });
 
-// POST /api/v1/clubs —— 创建（M5 前开放）
+// POST /api/v1/clubs —— 创建社团（自服务开通：成功后自动生成社长账号并一次性返回凭据）
+// 公网部署建议设置环境变量 CLUB_CREATE_TOKEN，届时必须带上 X-Create-Token 才能创建
 router.post('/', (req, res) => {
-  const club = clubService.createClub(req.body || {});
-  ok(res, club, 201);
+  const required = process.env.CLUB_CREATE_TOKEN || '';
+  if (required) {
+    const provided = req.headers['x-create-token'] || req.body?.createToken || '';
+    if (provided !== required) {
+      return res.status(403).json({ code: 40300, message: '创建社团需要正确的开通口令' });
+    }
+  }
+  const result = clubService.createClubWithOwner(req.body || {});
+  ok(res, result, 201);
 });
 
 // PUT /api/v1/clubs/:clubId/standard —— 修改信息录入标准与投递时间（需登录 + club:edit + 本社团）
@@ -36,19 +44,25 @@ router.put(
   }
 );
 
-// PUT /api/v1/clubs/:id —— 更新
-router.put('/:id', (req, res) => {
+// PUT /api/v1/clubs/:id —— 更新（需 club:edit + 本社团）
+router.put('/:id', requireCapability('club:edit'), requireOwnClub('id'), (req, res) => {
   ok(res, clubService.updateClub(req.params.id, req.body || {}));
 });
 
-// PUT /api/v1/clubs/:id/visibility —— 上/下架
-router.put('/:id/visibility', (req, res) => {
-  const visible = req.body?.isVisible === undefined ? true : Boolean(req.body.isVisible);
-  ok(res, clubService.setVisibility(req.params.id, visible));
-});
+// PUT /api/v1/clubs/:id/visibility —— 上/下架（需 club:edit + 本社团）
+router.put(
+  '/:id/visibility',
+  requireCapability('club:edit'),
+  requireOwnClub('id'),
+  (req, res) => {
+    const visible = req.body?.isVisible === undefined ? true : Boolean(req.body.isVisible);
+    ok(res, clubService.setVisibility(req.params.id, visible));
+  }
+);
 
-// DELETE /api/v1/clubs/:id —— 删除
-router.delete('/:id', (req, res) => {
+// DELETE /api/v1/clubs/:id —— 删除（需 club:edit + 本社团）
+// 注意：这会级联删掉该社团的批次/岗位/投递，所以必须校验归属
+router.delete('/:id', requireCapability('club:edit'), requireOwnClub('id'), (req, res) => {
   ok(res, clubService.deleteClub(req.params.id));
 });
 

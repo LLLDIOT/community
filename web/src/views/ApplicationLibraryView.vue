@@ -1,10 +1,34 @@
 <template>
   <div class="app-library" v-loading="loading">
+    <!-- 简历含学生个人信息，必须登录本社团账号才能查看 -->
+    <el-alert
+      v-if="!isLoggedIn"
+      type="warning"
+      show-icon
+      :closable="false"
+      title="请先登录社团账号"
+      class="login-gate"
+    >
+      <template #default>
+        <div class="gate-row">
+          <span>简历库里是学生的姓名、电话、专业等个人信息，只有本社团成员登录后才能查看。</span>
+          <el-button size="small" type="primary" @click="loginVisible = true">去登录</el-button>
+        </div>
+      </template>
+    </el-alert>
+
+    <template v-if="isLoggedIn">
     <!-- 筛选工具栏 -->
     <el-card shadow="never" class="toolbar">
       <div class="filters">
-        <el-select v-model="query.clubId" placeholder="选择社团" style="width: 170px" @change="onClubChange">
-          <el-option v-for="c in clubs" :key="c.id" :label="c.name" :value="c.id" />
+        <el-select
+          v-model="query.clubId"
+          placeholder="选择社团"
+          style="width: 170px"
+          :disabled="Boolean(myClubId)"
+          @change="onClubChange"
+        >
+          <el-option v-for="c in clubsForSelect" :key="c.id" :label="c.name" :value="c.id" />
         </el-select>
         <el-select v-model="query.recruitmentId" placeholder="招新批次" clearable style="width: 160px" @change="onRecChange">
           <el-option v-for="r in recruitments" :key="r.id" :label="r.title" :value="r.id" />
@@ -282,20 +306,32 @@
         </div>
       </template>
     </el-drawer>
+    </template>
+
+    <LoginDialog v-model="loginVisible" @success="onLoggedIn" />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { clubApi, recruitmentApi, positionApi, applicationApi, dictApi, matchApi, decisionApi } from '../api/index.js';
-import { isLoggedIn, can, init as initAuth } from '../stores/auth.js';
+import { isLoggedIn, account, can, init as initAuth } from '../stores/auth.js';
+import { TOKEN_KEY } from '../api/client.js';
+import LoginDialog from '../components/LoginDialog.vue';
 
 const route = useRoute();
 const router = useRouter();
 
+const loginVisible = ref(false);
 const canDecide = computed(() => isLoggedIn.value && can('application:decide'));
+/** 简历库只允许看自己社团：登录后锁定到本社团 */
+const myClubId = computed(() => account.value?.clubId || '');
+/** 锁定后下拉里只留自己社团（避免展示无法访问的其他社团） */
+const clubsForSelect = computed(() =>
+  myClubId.value ? clubs.value.filter((c) => c.id === myClubId.value) : clubs.value
+);
 
 const loading = ref(false);
 const list = ref([]);
@@ -431,10 +467,40 @@ async function load() {
 async function loadClubs() {
   const data = await clubApi.list({ page: 1, pageSize: 100 });
   clubs.value = data.list;
-  if (!query.clubId && clubs.value.length) {
-    query.clubId = route.query.clubId || clubs.value[0].id;
-  }
+  // 简历库现在受权限保护，只能看自己社团：登录后强制锁定到本社团
+  const locked = myClubId.value || route.query.clubId || clubs.value[0]?.id || '';
+  if (!query.clubId) query.clubId = locked;
 }
+
+async function onLoggedIn() {
+  await initAuth();
+  // 登录后锁定到本社团并重新加载
+  query.clubId = myClubId.value;
+  query.page = 1;
+  await loadRecruitments(query.clubId);
+  await loadPositions(query.recruitmentId || '');
+  await load();
+}
+
+// 侧边栏登录/退出后自动跟随
+watch(
+  () => myClubId.value,
+  async (clubId, prev) => {
+    if (clubId === prev) return;
+    if (!clubId) {
+      list.value = [];
+      total.value = 0;
+      return;
+    }
+    query.clubId = clubId;
+    query.recruitmentId = '';
+    query.positionId = '';
+    query.page = 1;
+    await loadRecruitments(clubId);
+    await loadPositions('');
+    await load();
+  }
+);
 
 async function loadRecruitments(clubId) {
   const data = await recruitmentApi.list(clubId);
@@ -633,7 +699,12 @@ function openAttachment(p) {
   window.open(p, '_blank');
 }
 
-function exportCsv() {
+/**
+ * 导出 CSV。
+ * 注意：不能用 window.open —— 它不会带上 X-Club-Token 头，
+ * 而导出接口现在要求登录（整包简历 PII），所以改成带凭据 fetch + Blob 下载。
+ */
+async function exportCsv() {
   const params = {
     typeTag: query.typeTag || undefined,
     status: query.status || undefined,
@@ -642,7 +713,29 @@ function exportCsv() {
     positionId: query.positionId || undefined,
     recruitmentId: query.recruitmentId || undefined,
   };
-  window.open(applicationApi.exportUrl(query.clubId, params), '_blank');
+  const qs = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v !== undefined && v !== '')
+  ).toString();
+  const url = `/api/v1/clubs/${query.clubId}/applications/export${qs ? `?${qs}` : ''}`;
+  try {
+    const res = await fetch(url, {
+      headers: { 'X-Club-Token': localStorage.getItem(TOKEN_KEY) || '' },
+    });
+    if (!res.ok) {
+      ElMessage.error(`导出失败（HTTP ${res.status}）`);
+      return;
+    }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `applications_${query.clubId}_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+  } catch (e) {
+    ElMessage.error('导出失败：' + e.message);
+  }
 }
 
 onMounted(async () => {
@@ -666,6 +759,14 @@ onMounted(async () => {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+.login-gate {
+  margin-bottom: 12px;
+}
+.gate-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 .tip {
   margin-top: 10px;

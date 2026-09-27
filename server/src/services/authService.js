@@ -361,23 +361,7 @@ export function ensureSeedAccounts({ quiet = false } = {}) {
   });
   run();
 
-  // 初始口令只写本地 data 目录（该目录已被 .gitignore 忽略，不会进仓库）
-  try {
-    const dataDir = path.resolve(__dirname, '../../data');
-    fs.mkdirSync(dataDir, { recursive: true });
-    const file = path.join(dataDir, 'initial-accounts.txt');
-    const lines = [
-      '# 社团端初始账号（首次自动生成，仅本机可见，未入库）',
-      `# 生成时间：${now}`,
-      '# 请登录后立刻在「我的社团 → 账号与权限」里修改密码',
-      '',
-      ...created.map((c) => `${c.clubName}\t账号=${c.username}\t密码=${c.password}`),
-      '',
-    ];
-    fs.appendFileSync(file, lines.join('\n'), 'utf8');
-  } catch (e) {
-    console.warn('[auth] 未能写入初始账号文件:', e.message);
-  }
+  writeAccountNotes(created, now);
 
   if (!quiet) {
     console.log(`[auth] 已为 ${created.length} 个社团创建初始社长账号：`);
@@ -388,4 +372,69 @@ export function ensureSeedAccounts({ quiet = false } = {}) {
   }
 
   return created;
+}
+
+/**
+ * 单个社团的账号播种（创建社团时立刻开通用）。
+ * 已有账号则返回 null，不重复创建。
+ */
+export function ensureSeedAccountsForClub(clubId) {
+  const club = db.prepare('SELECT id, name FROM club WHERE id = ?').get(clubId);
+  if (!club) return null;
+  const exists = db.prepare('SELECT id FROM club_account WHERE club_id = ? LIMIT 1').get(clubId);
+  if (exists) return null;
+
+  const now = nowIso();
+  const password = randomBytes(6).toString('base64url');
+  const username = `owner_${club.id.slice(-6)}`;
+  const { salt, hash } = hashPassword(password);
+
+  db.prepare(
+    `INSERT INTO club_account (id, club_id, username, password_hash, salt, display_name,
+                               role, is_active, created_at, updated_at)
+     VALUES (@id, @clubId, @username, @hash, @salt, @displayName, 'owner', 1, @createdAt, @updatedAt)`
+  ).run({
+    id: genId('acct'),
+    clubId: club.id,
+    username,
+    hash,
+    salt,
+    displayName: `${club.name}·社长`,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const created = { clubId: club.id, clubName: club.name, username, password };
+  writeAccountNotes([created], now);
+  console.log(`[auth] 新社团「${club.name}」已开通社长账号 ${username}（密码见响应与 initial-accounts.txt）`);
+  return created;
+}
+
+/** 把本轮生成的口令追加写入本地备忘文件（该目录已 gitignore，不入库） */
+function writeAccountNotes(created, now) {
+  if (!created.length) return;
+  try {
+    const dataDir = path.resolve(__dirname, '../../data');
+    fs.mkdirSync(dataDir, { recursive: true });
+    const file = path.join(dataDir, 'initial-accounts.txt');
+    if (!fs.existsSync(file)) {
+      fs.writeFileSync(
+        file,
+        [
+          '# 社团端账号（自动生成，仅本机可见，未入库）',
+          '# 本文件为追加写入：同一社团可能有多行历史记录，以最新一条为准',
+          '# 忘记密码可用：npm run account:reset -- --club 社团名',
+          '',
+        ].join('\n'),
+        'utf8'
+      );
+    }
+    fs.appendFileSync(
+      file,
+      [...created.map((c) => `${c.clubName}\t账号=${c.username}\t密码=${c.password}`), ''].join('\n'),
+      'utf8'
+    );
+  } catch (e) {
+    console.warn('[auth] 未能写入初始账号文件:', e.message);
+  }
 }
