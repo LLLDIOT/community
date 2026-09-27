@@ -37,4 +37,9 @@ router.put('/:id', (req, res) => {
   ok(res, resumeService.updateResume(req.params.id, req.body || {}));
 });
 
+// 删除简历（有投递时拒绝，避免级联误删面试历史）
+router.delete('/:id', (req, res) => {
+  ok(res, resumeService.deleteResume(req.params.id));
+});
+
 export default router;

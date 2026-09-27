@@ -10,9 +10,15 @@ import resumeRoutes from './routes/resumeRoutes.js';
 import applicationRoutes from './routes/applicationRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import matchRoutes from './routes/matchRoutes.js';
+import authRoutes from './routes/authRoutes.js';
+import squareRoutes from './routes/squareRoutes.js';
+import decisionRoutes from './routes/decisionRoutes.js';
 import { BizError } from './utils/errors.js';
 import * as applicationService from './services/applicationService.js';
+import * as authService from './services/authService.js';
+import * as decisionService from './services/decisionService.js';
 import { basicAuth } from './middlewares/basicAuth.js';
+import { optionalAccount } from './middlewares/clubAuth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -31,6 +37,9 @@ export function createApp() {
   // 健康检查
   app.get('/healthz', (req, res) => res.json({ code: 0, data: { status: 'ok' } }));
 
+  // 社团端登录态解析：只识别 Bearer token，不拦截（未登录照常走公开只读逻辑）
+  app.use(optionalAccount);
+
   // 业务路由
   app.use('/api/v1/clubs', clubRoutes);
   app.use('/api/v1', recruitmentRoutes);
@@ -39,6 +48,9 @@ export function createApp() {
   app.use('/api/v1', applicationRoutes);
   app.use('/api/v1', dashboardRoutes);
   app.use('/api/v1', matchRoutes);
+  app.use('/api/v1', authRoutes);
+  app.use('/api/v1/square', squareRoutes);
+  app.use('/api/v1', decisionRoutes);
 
   // 业务字典：类型标签与状态
   app.get('/api/v1/dict', (req, res) => {
@@ -48,6 +60,11 @@ export function createApp() {
         typeTags: applicationService.TYPE_TAGS,
         statuses: applicationService.applicationStatusLabels,
         statusTransitions: applicationService.STATUS_TRANSITIONS,
+        // 社团端改造新增：面试结论枚举 + 按人权限矩阵（前端据此隐藏越权按钮）
+        decisions: decisionService.decisionMeta,
+        roles: authService.ROLES,
+        roleLabels: authService.ROLE_LABELS,
+        roleCapabilities: authService.ROLE_CAPABILITIES,
       },
     });
   });

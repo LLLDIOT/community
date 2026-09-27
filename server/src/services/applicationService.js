@@ -34,12 +34,14 @@ function getApplicationById(id, { withJoins = false } = {}) {
                 rec.title AS recruitment_title, rec.club_id,
                 club.name AS club_name,
                 res.student_name, res.phone, res.email, res.school, res.major,
-                res.grade, res.content, res.attachment_path, res.skills
+                res.grade, res.content, res.attachment_path, res.skills,
+                adj.title AS adjust_position_title
          FROM application app
          JOIN position pos ON pos.id = app.position_id
          JOIN recruitment rec ON rec.id = pos.recruitment_id
          JOIN club ON club.id = rec.club_id
          JOIN resume res ON res.id = app.resume_id
+         LEFT JOIN position adj ON adj.id = app.adjust_position_id
          WHERE app.id = ?`
       )
       .get(id);
@@ -117,12 +119,13 @@ export function listApplicationsByPosition(positionId, { page = 1, pageSize = 50
 
 /**
  * 社团简历库（= 按类型/状态筛选的归档总视图）
- * filters: typeTag / status / grade / keyword / positionId / recruitmentId
+ * filters: typeTag / status / grade / keyword / positionId / recruitmentId / decision
  * 返回含 statusCounts：忽略 status 过滤的全体状态分布（用于前端统计条）
+ *     与 decisionCounts：忽略 decision 过滤的面试结论分布
  */
 export function listClubApplications(
   clubId,
-  { typeTag = '', status = '', grade = '', keyword = '', positionId = '', recruitmentId = '', page = 1, pageSize = 20 } = {}
+  { typeTag = '', status = '', grade = '', keyword = '', positionId = '', recruitmentId = '', decision = '', page = 1, pageSize = 20 } = {}
 ) {
   db.prepare('SELECT id FROM club WHERE id = ?').get(clubId) ||
     (() => { throw notFound('社团不存在'); })();
@@ -136,6 +139,9 @@ export function listClubApplications(
   if (grade) { where.push('res.grade = @grade'); params.grade = grade; }
   if (positionId) { where.push('app.position_id = @positionId'); params.positionId = positionId; }
   if (recruitmentId) { where.push('pos.recruitment_id = @recruitmentId'); params.recruitmentId = recruitmentId; }
+  // decision 过滤：空串 = 不筛；'__undecided__' = 只要还没标结论的
+  if (decision === '__undecided__') where.push("app.decision = ''");
+  else if (decision) { where.push('app.decision = @decision'); params.decision = decision; }
   if (keyword) {
     where.push('(res.student_name LIKE @kw OR res.major LIKE @kw OR res.school LIKE @kw)');
     params.kw = `%${keyword}%`;
@@ -156,13 +162,17 @@ export function listClubApplications(
     .prepare(
       `SELECT app.id, app.position_id, app.type_tag, app.status, app.score, app.note,
               app.created_at, app.updated_at,
+              app.decision, app.waitlist_rank, app.adjust_position_id, app.decided_at,
               pos.title AS position_title,
               rec.id AS recruitment_id, rec.title AS recruitment_title,
-              res.student_name, res.school, res.major, res.grade, res.attachment_path
+              res.id AS resume_id,
+              res.student_name, res.school, res.major, res.grade, res.attachment_path, res.skills,
+              adj.title AS adjust_position_title
        FROM application app
        JOIN position pos ON pos.id = app.position_id
        JOIN recruitment rec ON rec.id = pos.recruitment_id
        JOIN resume res ON res.id = app.resume_id
+       LEFT JOIN position adj ON adj.id = app.adjust_position_id
        ${whereSql}
        ORDER BY
          CASE app.status WHEN 'new' THEN 0 WHEN 'screening' THEN 1
@@ -180,6 +190,8 @@ export function listClubApplications(
   if (grade) { countWhere.push('res.grade = @grade'); countParams.grade = grade; }
   if (positionId) { countWhere.push('app.position_id = @positionId'); countParams.positionId = positionId; }
   if (recruitmentId) { countWhere.push('pos.recruitment_id = @recruitmentId'); countParams.recruitmentId = recruitmentId; }
+  if (decision === '__undecided__') countWhere.push("app.decision = ''");
+  else if (decision) { countWhere.push('app.decision = @decision'); countParams.decision = decision; }
   if (keyword) {
     countWhere.push('(res.student_name LIKE @kw OR res.major LIKE @kw OR res.school LIKE @kw)');
     countParams.kw = `%${keyword}%`;
@@ -195,9 +207,33 @@ export function listClubApplications(
     )
     .all(countParams);
 
+  // 面试结论分布：忽略 decision 过滤（用于"录用/候补/调剂/淘汰"统计条）
+  const decParams = { ...baseParams };
+  const decWhere = ['rec.club_id = @clubId'];
+  if (typeTag) { decWhere.push('app.type_tag = @typeTag'); decParams.typeTag = typeTag; }
+  if (status) { decWhere.push('app.status = @status'); decParams.status = status; }
+  if (grade) { decWhere.push('res.grade = @grade'); decParams.grade = grade; }
+  if (positionId) { decWhere.push('app.position_id = @positionId'); decParams.positionId = positionId; }
+  if (recruitmentId) { decWhere.push('pos.recruitment_id = @recruitmentId'); decParams.recruitmentId = recruitmentId; }
+  if (keyword) {
+    decWhere.push('(res.student_name LIKE @kw OR res.major LIKE @kw OR res.school LIKE @kw)');
+    decParams.kw = `%${keyword}%`;
+  }
+  const decisionCounts = db
+    .prepare(
+      `SELECT app.decision, COUNT(*) AS c FROM application app
+       JOIN position pos ON pos.id = app.position_id
+       JOIN recruitment rec ON rec.id = pos.recruitment_id
+       JOIN resume res ON res.id = app.resume_id
+       WHERE ${decWhere.join(' AND ')}
+       GROUP BY app.decision`
+    )
+    .all(decParams);
+
   return {
     list, total, page, pageSize,
     statusCounts: Object.fromEntries(statusCounts.map((r) => [r.status, r.c])),
+    decisionCounts: Object.fromEntries(decisionCounts.map((r) => [r.decision || 'undecided', r.c])),
   };
 }
 
@@ -250,7 +286,7 @@ export function setArchived(id, archived) {
 }
 
 /** 重算岗位 filled_count：累计录取人数 = was_admitted=1 的投递数 */
-function refreshPositionFilledCount(positionId, updatedAt = nowIso()) {
+export function refreshPositionFilledCount(positionId, updatedAt = nowIso()) {
   db.prepare(
     `UPDATE position SET filled_count = (SELECT COUNT(*) FROM application
       WHERE position_id = @positionId AND was_admitted = 1),
@@ -304,7 +340,7 @@ function csvCell(v) {
   return s;
 }
 
-/** 导出社团全部投递为 CSV（含筛选条件一致的处理逻辑：keyword/typeTag/status/grade） */
+/** 导出社团全部投递为 CSV（含筛选条件一致的处理逻辑：keyword/typeTag/status/grade/decision） */
 export function exportClubApplicationsCsv(clubId, query = {}) {
   const { list } = listClubApplications(clubId, {
     typeTag: query.typeTag || '',
@@ -313,12 +349,13 @@ export function exportClubApplicationsCsv(clubId, query = {}) {
     keyword: query.keyword || '',
     positionId: query.positionId || '',
     recruitmentId: query.recruitmentId || '',
+    decision: query.decision || '',
     page: 1,
     pageSize: 10000,
   });
 
   const headers = [
-    '姓名', '类型', '状态', '评分', '岗位', '招新批次',
+    '姓名', '类型', '状态', '面试结论', '候补序号', '调剂去向', '评分', '岗位', '招新批次',
     '学校', '专业', '年级', '投递时间', '备注',
   ];
   const STATUS_LABELS = {
@@ -329,10 +366,17 @@ export function exportClubApplicationsCsv(clubId, query = {}) {
     technical: '技术型', organizing: '组织策划型', artistic: '文艺特长型',
     sports: '体育型', academic: '学术竞赛型', service: '志愿服务型', other: '其他',
   };
+  const DECISION_LABELS = {
+    hired: '录用', waitlist: '候补', adjust: '调剂', reject: '淘汰', '': '未决定',
+  };
 
   const rows = list.map((a) => [
     a.student_name, TYPE_LABELS[a.type_tag] || a.type_tag,
-    STATUS_LABELS[a.status] || a.status, a.score ?? '',
+    STATUS_LABELS[a.status] || a.status,
+    DECISION_LABELS[a.decision || ''] || a.decision || '',
+    a.waitlist_rank ?? '',
+    a.adjust_position_title ?? '',
+    a.score ?? '',
     a.position_title, a.recruitment_title,
     a.school ?? '', a.major ?? '', a.grade ?? '', a.created_at, a.note ?? '',
   ]);

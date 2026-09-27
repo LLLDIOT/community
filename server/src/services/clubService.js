@@ -8,6 +8,8 @@ function pickClubFields(body) {
   const keys = [
     'name', 'scale', 'scaleLabel', 'description', 'category',
     'logoPath', 'contactName', 'contactPhone', 'contactEmail',
+    // 社团端改造新增：信息录入标准 + 投递时间窗
+    'entryCriteria', 'applyStartAt', 'applyEndAt',
   ];
   for (const k of keys) {
     if (body[k] !== undefined) fields[k] = body[k];
@@ -80,9 +82,11 @@ export function createClub(body) {
   db.prepare(
     `INSERT INTO club (id, name, scale, scale_label, description, category,
                        logo_path, contact_name, contact_phone, contact_email,
+                       entry_criteria, apply_start_at, apply_end_at,
                        is_visible, created_at, updated_at)
      VALUES (@id, @name, @scale, @scaleLabel, @description, @category,
              @logoPath, @contactName, @contactPhone, @contactEmail,
+             @entryCriteria, @applyStartAt, @applyEndAt,
              1, @createdAt, @updatedAt)`
   ).run({
     id,
@@ -95,10 +99,40 @@ export function createClub(body) {
     contactName: fields.contactName ?? null,
     contactPhone: fields.contactPhone ?? null,
     contactEmail: fields.contactEmail ?? null,
+    entryCriteria: fields.entryCriteria ?? '',
+    applyStartAt: fields.applyStartAt ?? null,
+    applyEndAt: fields.applyEndAt ?? null,
     createdAt: now,
     updatedAt: now,
   });
 
+  return getClubById(id);
+}
+
+/**
+ * 更新「信息录入标准 + 投递时间」——社团端面板的核心编辑动作，需要登录且限本社团。
+ * 只允许改这三个字段，避免与通用 PUT /clubs/:id 的语义混淆。
+ */
+export function updateClubStandard(id, body = {}) {
+  getClubById(id);
+
+  const entryCriteria = body.entryCriteria === undefined ? undefined : String(body.entryCriteria);
+  const applyStartAt = body.applyStartAt === undefined ? undefined : (body.applyStartAt || null);
+  const applyEndAt = body.applyEndAt === undefined ? undefined : (body.applyEndAt || null);
+
+  if (applyStartAt && applyEndAt && new Date(applyStartAt) > new Date(applyEndAt)) {
+    throw badRequest('投递开始时间不能晚于结束时间');
+  }
+
+  const sets = [];
+  const params = { id, updatedAt: nowIso() };
+  if (entryCriteria !== undefined) { sets.push('entry_criteria = @entryCriteria'); params.entryCriteria = entryCriteria; }
+  if (applyStartAt !== undefined) { sets.push('apply_start_at = @applyStartAt'); params.applyStartAt = applyStartAt; }
+  if (applyEndAt !== undefined) { sets.push('apply_end_at = @applyEndAt'); params.applyEndAt = applyEndAt; }
+
+  if (sets.length > 0) {
+    db.prepare(`UPDATE club SET ${sets.join(', ')}, updated_at = @updatedAt WHERE id = @id`).run(params);
+  }
   return getClubById(id);
 }
 

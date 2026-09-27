@@ -18,9 +18,19 @@
         <el-select v-model="query.status" placeholder="处理状态" clearable style="width: 130px" @change="resetPage">
           <el-option v-for="(label, value) in statusOptions" :key="value" :label="label" :value="value" />
         </el-select>
+        <el-select v-model="query.decision" placeholder="面试结论" clearable style="width: 140px" @change="resetPage">
+          <el-option label="未决定" value="__undecided__" />
+          <el-option label="录用" value="hired" />
+          <el-option label="候补" value="waitlist" />
+          <el-option label="调剂" value="adjust" />
+          <el-option label="淘汰" value="reject" />
+        </el-select>
         <el-input v-model="query.keyword" placeholder="姓名 / 专业 / 学校" clearable style="width: 180px" @keyup.enter="load" @clear="load" />
         <el-button type="primary" @click="load">查询</el-button>
         <el-button :disabled="!query.clubId" @click="exportCsv">导出 CSV</el-button>
+        <el-button type="success" plain @click="$router.push('/interview')">
+          <el-icon><Suitcase /></el-icon>&nbsp;去面试工作台
+        </el-button>
       </div>
       <div v-if="!query.clubId" class="tip">请先在上方选择社团，查看该社团的简历库</div>
     </el-card>
@@ -31,6 +41,28 @@
         <el-card shadow="never" :body-style="{ padding: '12px' }">
           <div class="stat-num" :style="{ color: s.color }">{{ s.count }}</div>
           <div class="stat-label">{{ s.label }}</div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <!-- 面试结论统计条（录用 / 候补 / 调剂 / 淘汰） -->
+    <el-row v-if="query.clubId" :gutter="12" class="stats decision-stats">
+      <el-col v-for="d in decisionStats" :key="d.key" :span="5">
+        <el-card
+          shadow="never"
+          :body-style="{ padding: '10px 12px' }"
+          class="decision-card"
+          :class="{ active: query.decision === d.filterValue }"
+          @click="filterByDecision(d.filterValue)"
+        >
+          <div class="stat-num small" :style="{ color: d.color }">{{ d.count }}</div>
+          <div class="stat-label">{{ d.label }}</div>
+        </el-card>
+      </el-col>
+      <el-col :span="4">
+        <el-card shadow="never" :body-style="{ padding: '10px 12px' }" class="decision-card" @click="filterByDecision('')">
+          <div class="stat-num small" style="color: #909399">{{ total }}</div>
+          <div class="stat-label">当前筛选结果</div>
         </el-card>
       </el-col>
     </el-row>
@@ -58,6 +90,14 @@
             <el-tag size="small" :type="statusColor(row.status)">{{ statusLabel(row.status) }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="面试结论" width="140" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.decision" size="small" effect="dark" :type="decisionColor(row.decision)">
+              {{ decisionText(row) }}
+            </el-tag>
+            <span v-else class="muted">未决定</span>
+          </template>
+        </el-table-column>
         <el-table-column label="评分" width="120" align="center">
           <template #default="{ row }">
             <el-rate :model-value="row.score" disabled size="small" />
@@ -68,16 +108,24 @@
         </el-table-column>
         <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
-            <el-dropdown trigger="click" @command="(cmd) => handleStatus(row, cmd)">
-              <el-button size="small" type="primary" plain>
-                状态<el-icon class="el-icon--right"><ArrowDown /></el-icon>
-              </el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item v-for="(label, val) in nextStatuses(row.status)" :key="val" :command="val">{{ label }}</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
+            <el-tooltip
+              :disabled="canDecide"
+              content="登录社团账号后才能变更状态"
+              placement="top"
+            >
+              <span>
+                <el-dropdown trigger="click" :disabled="!canDecide" @command="(cmd) => handleStatus(row, cmd)">
+                  <el-button size="small" type="primary" plain :disabled="!canDecide">
+                    状态<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                  </el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item v-for="(label, val) in nextStatuses(row.status)" :key="val" :command="val">{{ label }}</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </span>
+            </el-tooltip>
             <el-button size="small" @click="openDetail(row.id)">详情</el-button>
           </template>
         </el-table-column>
@@ -104,6 +152,12 @@
           <el-descriptions-item label="投递岗位">{{ drawer.app.club_name }} / {{ drawer.app.recruitment_title }} / {{ drawer.app.position_title }}</el-descriptions-item>
           <el-descriptions-item label="当前状态">
             <el-tag size="small" :type="statusColor(drawer.app.status)">{{ statusLabel(drawer.app.status) }}</el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="面试结论">
+            <el-tag v-if="drawer.app.decision" size="small" effect="dark" :type="decisionColor(drawer.app.decision)">
+              {{ decisionText(drawer.app) }}
+            </el-tag>
+            <span v-else class="muted">未决定</span>
           </el-descriptions-item>
           <el-descriptions-item v-if="drawer.app.skills" label="技能标签">
             <el-tag v-for="s in splitSkills(drawer.app.skills)" :key="s" size="small" type="warning" effect="plain" style="margin-right: 4px">{{ s }}</el-tag>
@@ -163,6 +217,37 @@
 
         <div class="drawer-block">
           <div class="drawer-title">处理操作</div>
+
+          <!-- 面试结论：录用 / 候补N号 / 调剂 / 淘汰 -->
+          <el-alert
+            v-if="!canDecide"
+            type="warning"
+            :closable="false"
+            show-icon
+            title="登录社团账号后才能标注录用 / 调剂 / 候补"
+            class="decision-alert"
+          />
+          <div class="decision-actions">
+            <span class="decision-label">面试结论</span>
+            <el-button
+              size="small" type="success" :plain="drawer.app.decision !== 'hired'"
+              :disabled="!canDecide" @click="setDecision('hired')"
+            >录用</el-button>
+            <el-button
+              size="small" type="warning" :plain="drawer.app.decision !== 'waitlist'"
+              :disabled="!canDecide" @click="setDecisionWaitlist"
+            >候补</el-button>
+            <el-button
+              size="small" type="primary" :plain="drawer.app.decision !== 'adjust'"
+              :disabled="!canDecide" @click="goAdjust"
+            >调剂</el-button>
+            <el-button
+              size="small" type="danger" :plain="drawer.app.decision !== 'reject'"
+              :disabled="!canDecide" @click="setDecision('reject')"
+            >淘汰</el-button>
+            <el-button v-if="drawer.app.decision" size="small" link @click="setDecision('')">撤销</el-button>
+          </div>
+
           <el-form label-width="70px" size="small">
             <el-form-item label="评分">
               <el-rate v-model="scoreForm.score" />
@@ -176,20 +261,22 @@
               <el-input v-model="scoreForm.note" type="textarea" :rows="3" placeholder="记录面试情况、倾向…" />
             </el-form-item>
             <el-form-item>
-              <el-button type="primary" @click="saveScore">保存评分备注</el-button>
+              <el-button type="primary" :disabled="!canDecide" @click="saveScore">保存评分备注</el-button>
               <el-button
                 v-if="drawer.app.status !== 'archived'"
                 type="warning"
                 plain
+                :disabled="!canDecide"
                 @click="doArchive(true)"
               >归档</el-button>
               <el-button
                 v-else
                 type="info"
                 plain
+                :disabled="!canDecide"
                 @click="doArchive(false)"
               >取消归档（回到已淘汰）</el-button>
-              <el-button type="danger" plain @click="doDelete">删除</el-button>
+              <el-button type="danger" plain :disabled="!canDecide" @click="doDelete">删除</el-button>
             </el-form-item>
           </el-form>
         </div>
@@ -202,15 +289,19 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { clubApi, recruitmentApi, positionApi, applicationApi, dictApi, matchApi } from '../api/index.js';
+import { clubApi, recruitmentApi, positionApi, applicationApi, dictApi, matchApi, decisionApi } from '../api/index.js';
+import { isLoggedIn, can, init as initAuth } from '../stores/auth.js';
 
 const route = useRoute();
 const router = useRouter();
+
+const canDecide = computed(() => isLoggedIn.value && can('application:decide'));
 
 const loading = ref(false);
 const list = ref([]);
 const total = ref(0);
 const statusCounts = ref({});
+const decisionCounts = ref({});
 const clubs = ref([]);
 const recruitments = ref([]);
 const positions = ref([]);
@@ -222,6 +313,7 @@ const query = reactive({
   positionId: '',
   typeTag: '',
   status: '',
+  decision: '',
   keyword: '',
   page: 1,
   pageSize: 10,
@@ -235,6 +327,7 @@ const STATUS_COLORS = {
   new: 'danger', screening: 'warning', interviewing: 'warning',
   admitted: 'success', rejected: 'info', archived: 'info',
 };
+const DECISION_COLORS = { hired: 'success', waitlist: 'warning', adjust: 'primary', reject: 'danger' };
 
 const typeTagOptions = computed(() =>
   dict.typeTags.map((t) => ({ value: t, label: TYPE_LABELS[t] || t }))
@@ -244,6 +337,21 @@ const typeLabel = (v) => TYPE_LABELS[v] || v;
 const statusLabel = (v) => dict.statuses?.[v] || v;
 const statusColor = (s) => STATUS_COLORS[s] || 'info';
 const tagColor = () => 'info';
+const decisionColor = (d) => DECISION_COLORS[d] || 'info';
+/** 面试结论的展示文案（候补要带序号，调剂要带去向） */
+function decisionText(row) {
+  if (row.decision === 'waitlist') return row.waitlist_rank ? `候补 ${row.waitlist_rank} 号` : '候补';
+  if (row.decision === 'adjust') return row.adjust_position_title ? `调剂 → ${row.adjust_position_title}` : '调剂';
+  if (row.decision === 'hired') return '录用';
+  if (row.decision === 'reject') return '淘汰';
+  return '未决定';
+}
+
+/** 点结论卡片直接按该结论筛选 */
+function filterByDecision(v) {
+  query.decision = query.decision === v ? '' : v;
+  resetPage();
+}
 
 function fmtDate(iso) {
   return iso ? iso.slice(0, 10) : '';
@@ -283,6 +391,18 @@ const stats = computed(() => {
   ];
 });
 
+/** 面试结论统计（decisionCounts 由后端忽略 decision 过滤计算，其余筛选一致） */
+const decisionStats = computed(() => {
+  const dc = decisionCounts.value;
+  return [
+    { key: 'hired', label: '录用', count: dc.hired || 0, color: '#67C23A', filterValue: 'hired' },
+    { key: 'waitlist', label: '候补', count: dc.waitlist || 0, color: '#E6A23C', filterValue: 'waitlist' },
+    { key: 'adjust', label: '调剂', count: dc.adjust || 0, color: '#409EFF', filterValue: 'adjust' },
+    { key: 'reject', label: '淘汰', count: dc.reject || 0, color: '#F56C6C', filterValue: 'reject' },
+    { key: 'undecided', label: '未决定', count: dc.undecided || 0, color: '#909399', filterValue: '__undecided__' },
+  ];
+});
+
 async function load() {
   if (!query.clubId) return;
   loading.value = true;
@@ -290,6 +410,7 @@ async function load() {
     const params = {
       typeTag: query.typeTag || undefined,
       status: query.status || undefined,
+      decision: query.decision || undefined,
       keyword: query.keyword || undefined,
       positionId: query.positionId || undefined,
       recruitmentId: query.recruitmentId || undefined,
@@ -300,6 +421,7 @@ async function load() {
     list.value = data.list;
     total.value = data.total;
     statusCounts.value = data.statusCounts || {};
+    decisionCounts.value = data.decisionCounts || {};
   } finally {
     loading.value = false;
   }
@@ -420,6 +542,78 @@ async function saveScore() {
   refreshDrawer(drawer.app.id);
 }
 
+/* ---------- 面试结论 ---------- */
+async function setDecision(decision) {
+  if (!drawer.app) return;
+  try {
+    await decisionApi.set(drawer.app.id, { decision });
+    ElMessage.success(
+      decision === 'hired' ? `已录用 ${drawer.app.student_name}`
+        : decision === 'reject' ? `已淘汰 ${drawer.app.student_name}`
+        : '已撤销结论'
+    );
+    await load();
+    await refreshDrawer(drawer.app.id);
+  } catch {
+    /* 拦截器已提示 */
+  }
+}
+
+async function setDecisionWaitlist() {
+  if (!drawer.app) return;
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `为「${drawer.app.student_name}」设置候补序号（1 号最优先，留空自动排到队尾）`,
+      '标注候补',
+      { inputPlaceholder: '如 1' }
+    );
+    await decisionApi.set(drawer.app.id, {
+      decision: 'waitlist',
+      waitlistRank: value === '' ? undefined : Number(value),
+    });
+    ElMessage.success('已加入候补队列');
+    await load();
+    await refreshDrawer(drawer.app.id);
+  } catch (e) {
+    if (e !== 'cancel') { /* 已提示 */ }
+  }
+}
+
+/** 调剂：算本社团内的建议岗位，选一个执行 */
+async function goAdjust() {
+  if (!drawer.app) return;
+  const { suggestions } = await decisionApi.adjustSuggestions(drawer.app.id);
+  if (!suggestions.length) return ElMessage.info('本社团内暂无可调剂岗位');
+
+  const top = suggestions.slice(0, 8);
+  const html = top
+    .map(
+      (s, i) =>
+        `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f0f0f0">
+           <span><b>${i + 1}.</b> ${s.positionTitle} <span style="color:#909399;font-size:12px">${s.recruitmentTitle}</span></span>
+           <span style="color:${s.matchScore >= 50 ? '#67c23a' : '#909399'};font-weight:600">${s.matchScore}% · 余 ${s.remaining}</span>
+         </div>`
+    )
+    .join('');
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `${html}<div style="margin-top:8px;color:#606266">输入要调剂到的岗位序号：</div>`,
+      '选择调剂目标岗位',
+      { dangerouslyUseHTMLString: true, inputPlaceholder: '如 1', inputPattern: /^\d+$/, inputErrorMessage: '请输入序号' }
+    );
+    const idx = Number(value) - 1;
+    if (idx < 0 || idx >= top.length) return ElMessage.warning('序号超出范围');
+    const res = await decisionApi.adjust(drawer.app.id, { adjustPositionId: top[idx].positionId });
+    ElMessage.success(
+      res.alreadyApplied ? '已标注调剂（此前已投过该岗位）' : `已调剂到「${top[idx].positionTitle}」并生成新投递`
+    );
+    await load();
+    await refreshDrawer(drawer.app.id);
+  } catch (e) {
+    if (e !== 'cancel') { /* 已提示 */ }
+  }
+}
+
 async function doArchive(archived) {
   await applicationApi.archive(drawer.app.id, archived);
   ElMessage.success(archived ? '已归档' : '已取消归档');
@@ -443,6 +637,7 @@ function exportCsv() {
   const params = {
     typeTag: query.typeTag || undefined,
     status: query.status || undefined,
+    decision: query.decision || undefined,
     keyword: query.keyword || undefined,
     positionId: query.positionId || undefined,
     recruitmentId: query.recruitmentId || undefined,
@@ -451,6 +646,7 @@ function exportCsv() {
 }
 
 onMounted(async () => {
+  await initAuth();
   const d = await dictApi.get();
   Object.assign(dict, d);
   await loadClubs();
@@ -479,14 +675,54 @@ onMounted(async () => {
 .stats {
   margin: 12px 0;
 }
+.decision-stats {
+  margin-top: -4px;
+}
+.decision-card {
+  cursor: pointer;
+  transition: all 0.16s;
+  border: 1px solid transparent;
+}
+.decision-card:hover {
+  border-color: #409eff;
+  transform: translateY(-1px);
+}
+.decision-card.active {
+  border-color: #409eff;
+  background: #ecf5ff;
+}
 .stat-num {
   font-size: 22px;
   font-weight: 700;
+}
+.stat-num.small {
+  font-size: 18px;
 }
 .stat-label {
   color: #909399;
   font-size: 12px;
   margin-top: 2px;
+}
+.decision-label {
+  font-size: 13px;
+  color: #606266;
+  margin-right: 4px;
+}
+.decision-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+  padding: 10px;
+  background: #f7f9fc;
+  border-radius: 8px;
+}
+.decision-actions :deep(.el-button) {
+  margin: 0;
+}
+.decision-alert {
+  margin-bottom: 10px;
 }
 .pager {
   margin-top: 12px;

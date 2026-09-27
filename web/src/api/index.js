@@ -70,3 +70,45 @@ export const matchApi = {
   /** 社团侧：未录取投递者与 open 岗位的高分组合 */
   matchApplicants: (clubId, params) => http.get(`/clubs/${clubId}/match-applicants`, params),
 };
+
+/* ---------- 社团端账号（登录与按人权限） ---------- */
+export const authApi = {
+  login: (data) => http.post('/auth/login', data),
+  logout: () => http.post('/auth/logout', {}),
+  me: () => http.get('/auth/me'),
+  changePassword: (data) => http.patch('/auth/password', data),
+  /** 社团账号管理（需 account:manage） */
+  listAccounts: (clubId) => http.get(`/clubs/${clubId}/accounts`),
+  createAccount: (clubId, data) => http.post(`/clubs/${clubId}/accounts`, data),
+  updateAccount: (id, data) => http.put(`/accounts/${id}`, data),
+  removeAccount: (id) => http.delete(`/accounts/${id}`),
+};
+
+/* ---------- 招新广场（双面板：全校总览 + 单社团招新情况） ---------- */
+export const squareApi = {
+  clubs: (params) => http.get('/square/clubs', params),
+  categories: () => http.get('/square/categories'),
+  clubDetail: (id, params) => http.get(`/square/clubs/${id}`, params),
+};
+
+/* ---------- 面试决策：录用 / 调剂 / 候补序号 / 递补 ---------- */
+export const decisionApi = {
+  /** 面试与录用工作台（分列 + 岗位进度 + 汇总） */
+  board: (clubId, params) => http.get(`/clubs/${clubId}/interview-board`, params),
+  detail: (applicationId) => http.get(`/applications/${applicationId}/decision`),
+  /** 标注结论：decision = '' | hired | waitlist | adjust | reject */
+  set: (applicationId, data) => http.patch(`/applications/${applicationId}/decision`, data),
+  /** 调剂建议（技能匹配推荐目标岗位） */
+  adjustSuggestions: (applicationId) => http.get(`/applications/${applicationId}/adjust-suggestions`),
+  /** 执行调剂：目标岗位建投递 + 原岗标注 */
+  adjust: (applicationId, data) => http.post(`/applications/${applicationId}/adjust`, data),
+  waitlist: (positionId) => http.get(`/positions/${positionId}/waitlist`),
+  /** 递补：候补队首提升为录用 */
+  promoteWaitlist: (positionId, data = {}) => http.post(`/positions/${positionId}/promote-waitlist`, data),
+  progress: (positionId) => http.get(`/positions/${positionId}/progress`),
+};
+
+/* ---------- 我的社团：录入标准与投递时间（需 club:edit） ---------- */
+export const clubStandardApi = {
+  update: (clubId, data) => http.put(`/clubs/${clubId}/standard`, data),
+};

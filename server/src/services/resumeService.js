@@ -66,3 +66,20 @@ export function updateResume(id, body) {
 
   return getResumeById(id);
 }
+
+/**
+ * 删除简历（清理误建/测试归档用）。
+ * 有投递记录的简历不允许直接删——否则外键级联会把投递一起带走，
+ * 相当于绕过状态机删掉了社团的面试历史。要删先处理投递。
+ */
+export function deleteResume(id) {
+  getResumeById(id);
+  const appCount = db
+    .prepare('SELECT COUNT(*) AS c FROM application WHERE resume_id = ?')
+    .get(id).c;
+  if (appCount > 0) {
+    throw badRequest(`该简历还有 ${appCount} 条投递记录，请先删除投递后再删除简历`);
+  }
+  db.prepare('DELETE FROM resume WHERE id = ?').run(id);
+  return { id, deleted: true };
+}

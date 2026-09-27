@@ -5,7 +5,14 @@ const routes = [
     path: '/',
     component: () => import('../layout/MainLayout.vue'),
     children: [
-      { path: '', redirect: '/dashboard' },
+      { path: '', redirect: '/square' },
+      /* ===== 招新广场（双面板：全校社团总览 + 我的社团） ===== */
+      {
+        path: 'square',
+        name: 'square',
+        component: () => import('../views/SquareView.vue'),
+        meta: { title: '招新广场', group: '招新广场' },
+      },
       /* ===== 数据看板 ===== */
       {
         path: 'dashboard',
@@ -14,6 +21,12 @@ const routes = [
         meta: { title: '招新数据看板', group: '数据看板' },
       },
       /* ===== 社团端（录入与管理） ===== */
+      {
+        path: 'interview',
+        name: 'interview',
+        component: () => import('../views/InterviewView.vue'),
+        meta: { title: '面试与录用工作台', group: '社团端' },
+      },
       {
         path: 'clubs',
         name: 'clubs',

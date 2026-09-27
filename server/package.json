@@ -8,7 +8,10 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
-    "migrate": "node src/db/migrate.js"
+    "migrate": "node scripts/check-migration.mjs",
+    "smoke": "node scripts/smoke-club-console.mjs",
+    "cleanup:smoke": "node scripts/cleanup-smoke.mjs",
+    "account:reset": "node scripts/reset-club-password.mjs"
   },
   "engines": {
     "node": ">=20"

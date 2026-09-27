@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as clubService from '../services/clubService.js';
 import { ok } from '../utils/respond.js';
 import { parsePage } from '../utils/respond.js';
+import { requireCapability, requireOwnClub } from '../middlewares/clubAuth.js';
 
 const router = Router();
 
@@ -23,6 +24,17 @@ router.post('/', (req, res) => {
   const club = clubService.createClub(req.body || {});
   ok(res, club, 201);
 });
+
+// PUT /api/v1/clubs/:clubId/standard —— 修改信息录入标准与投递时间（需登录 + club:edit + 本社团）
+// 必须注册在 '/:id' 之前，否则 'standard' 会被当成社团 id
+router.put(
+  '/:clubId/standard',
+  requireCapability('club:edit'),
+  requireOwnClub('clubId'),
+  (req, res) => {
+    ok(res, clubService.updateClubStandard(req.params.clubId, req.body || {}));
+  }
+);
 
 // PUT /api/v1/clubs/:id —— 更新
 router.put('/:id', (req, res) => {

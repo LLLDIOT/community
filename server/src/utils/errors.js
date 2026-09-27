@@ -18,6 +18,11 @@ export function forbidden(message = '权限不足') {
   return new BizError(message, { code: 40300, httpStatus: 403 });
 }
 
+/** 快捷：未登录 / 登录已失效 */
+export function unauthorized(message = '请先登录') {
+  return new BizError(message, { code: 40100, httpStatus: 401 });
+}
+
 /** 快捷：参数校验失败 */
 export function badRequest(message = '参数校验失败') {
   return new BizError(message, { code: 40001 });
