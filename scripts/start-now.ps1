@@ -1,4 +1,4 @@
-# start-now.ps1 —— 立即前台启动前后端 + cpolar（调试用，不做自启）
+﻿# start-now.ps1 —— 立即前台启动前后端 + cpolar（调试用，不做自启）
 # 用法：powershell -ExecutionPolicy Bypass -File scripts\start-now.ps1
 $ErrorActionPreference = 'Continue'
 $repoRoot = Split-Path -Parent $PSScriptRoot
