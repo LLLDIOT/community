@@ -22,17 +22,27 @@ echo "═══════════ 社团招新系统 · 部署自检 ═�
 
 # ── 1. 容器 ──
 head_ "1. 容器状态"
-if command -v docker >/dev/null 2>&1; then
-  if docker compose version >/dev/null 2>&1; then
-    ( cd "$APP_DIR" && docker compose ps ) 2>/dev/null || warn "在 $APP_DIR 下执行 docker compose ps 失败"
-    state="$(cd "$APP_DIR" && docker compose ps --format '{{.State}}' 2>/dev/null | head -1)"
-    if [[ "$state" == "running" ]]; then ok "容器 running"; else bad "容器状态：${state:-未知}（应为 running）"; fi
-  else
-    bad "缺少 docker compose 插件"
-  fi
+MODE="未知"
+if systemctl is-active --quiet community 2>/dev/null; then
+  MODE="systemd"
+  ok "systemd 服务 community 正在运行（原生部署）"
+  systemctl status community --no-pager 2>/dev/null | head -5 | sed 's/^/     /'
+elif command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^community$'; then
+  MODE="docker"
+  ok "Docker 容器 community 正在运行"
+  ( cd "$APP_DIR" && docker compose ps ) 2>/dev/null | sed 's/^/     /'
+elif command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  MODE="docker"
+  bad "未发现运行中的 community 容器"
+  echo "     启动： cd ${APP_DIR} && docker compose up -d"
+elif systemctl list-unit-files 2>/dev/null | grep -q '^community\.service'; then
+  MODE="systemd"
+  bad "systemd 服务 community 存在但未运行"
+  echo "     查日志： journalctl -u community -n 50 --no-pager"
 else
-  bad "未安装 Docker"
+  bad "既没有运行中的 systemd 服务 community，也没有 Docker 容器 —— 服务没跑起来"
 fi
+echo "   （判定模式：${MODE}）"
 
 # ── 2. 端口监听 ──
 head_ "2. 端口监听"

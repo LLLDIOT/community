@@ -1,6 +1,11 @@
 services:
   community:
-    build: .
+    build:
+      context: .
+      args:
+        # 构建期 npm 源。国内服务器改成 https://registry.npmmirror.com 会快很多；
+        # deploy/provision.sh 支持用 NPM_REGISTRY 环境变量传入。
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
     container_name: community
     # 两个站点 = 两个端口（同一个进程、同一份数据）
     #   社团端（有密码）  APP_PORT         默认 3000

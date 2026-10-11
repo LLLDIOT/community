@@ -32,8 +32,9 @@ community/
 │  ├─ DATA_MODEL.md     # 数据模型 + SQL DDL
 │  ├─ API.md            # REST API 设计
 │  └─ DEPLOY.md         # 部署指南
-│  └─ DEPLOY_CLOUD.md   # ☁️ 上云部署（买服务器 → 一键部署 → 搬数据）
-│  └─ DEPLOY_FREE_VM.md # 🆓 免费方案（Oracle / GCP 永久免费 VM + 避坑清单）
+│  └─ DEPLOY_CLOUD.md   # ☁️ 香港/海外服务器（Docker 一键部署）
+│  └─ DEPLOY_CN_TRIAL.md# 🇨🇳 国内云免费试用（不需信用卡；原生部署，不依赖 Docker Hub）
+│  └─ DEPLOY_FREE_VM.md # 🆓 永久免费 VM（Oracle / GCP，需信用卡）
 ├─ server/              # Express API（M1-M2 ✅）
 │  ├─ db/migrations/    # 001~004 建库/升级脚本（004 = 社团端改造）
 │  ├─ src/routes/       # 含 authRoutes / squareRoutes / decisionRoutes
@@ -95,19 +96,41 @@ docker compose up -d --build
 > 为什么拆开：学生必须能自助投递，若与管理台同站就得把管理密码发给全校。
 > 拆开后学生端公开、且**只存在投递必需的 5 个接口**。
 
-想让同学随时打开、不再依赖你自己的电脑，见 **[docs/DEPLOY_CLOUD.md](docs/DEPLOY_CLOUD.md)**：
+想让同学随时打开、不再依赖你自己的电脑——**按服务器位置选一条部署路径**：
+
+| 服务器 | 用哪个脚本 | 指南 |
+|---|---|---|
+| 🇨🇳 **国内云**（腾讯云/阿里云/华为云，免费试用或学生机） | `deploy/provision-cn.sh` | [DEPLOY_CN_TRIAL.md](docs/DEPLOY_CN_TRIAL.md) |
+| 🌏 **香港 / 海外**服务器 | `deploy/provision.sh`（Docker） | [DEPLOY_CLOUD.md](docs/DEPLOY_CLOUD.md) |
+| 🆓 **Oracle / GCP 永久免费 VM**（需信用卡） | `deploy/provision.sh`（Docker） | [DEPLOY_FREE_VM.md](docs/DEPLOY_FREE_VM.md) |
+
+> ⚠️ **国内服务器请用 `provision-cn.sh`**：国内拉 Docker Hub 经常超时，
+> Docker 路径会卡在拉取基础镜像。国内脚本走 npmmirror + systemd，不碰 Docker，稳得多。
 
 ```bash
-# 1) 在服务器上（Ubuntu）克隆并一键部署（自动装 Docker、生成强密码、起两个站点、配每日备份）
+# 国内云服务器（推荐，不需信用卡）
 git clone --depth 1 https://github.com/LLLDIOT/community.git /opt/community
+bash /opt/community/deploy/provision-cn.sh
+
+# 香港/海外服务器
 bash /opt/community/deploy/provision.sh
+```
 
-# 2) 在本机导出数据
+数据搬迁两条路完全一样：
+
+```bash
+# 本机导出
 cd server && npm run data:export
-
-# 3) 上传后在服务器导入（先 docker compose down）
 scp -r server/export-* root@<服务器IP>:/root/
-# 服务器上：cd /opt/community/server && npm run data:import -- --from /root/export-xxx --force
+
+# 服务器导入（先停服务：systemctl stop community  或  docker compose down）
+cd /opt/community/server && npm run data:import -- --from /root/export-xxx --force
+```
+
+**打不开就跑自检**（会自动识别 Docker / systemd 两种模式）：
+
+```bash
+bash /opt/community/deploy/doctor.sh
 ```
 
 > ⚠️ 公网部署前请确认已了解 [安全须知](docs/DEPLOY_CLOUD.md#7-安全须知重要)：
