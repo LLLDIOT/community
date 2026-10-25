@@ -24,7 +24,7 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$AppDir = (Split-Path -Parent $PSScriptRoot),
+  [string]$AppDir = '',
   [switch]$SkipAuthCheck
 )
 
@@ -34,6 +34,20 @@ function Say($m, $c = 'Cyan') { Write-Host $m -ForegroundColor $c }
 function Ok($m)   { Write-Host "  [OK] $m"   -ForegroundColor Green }
 function Warn($m) { Write-Host "  [警告] $m" -ForegroundColor Yellow }
 function Die($m)  { Write-Host "  [错误] $m" -ForegroundColor Red; exit 1 }
+
+# $PSScriptRoot 在 param() 默认值里可能还没赋值（PowerShell 5.1 的坑），
+# 所以放到脚本体里解析，并兼容几种定位方式。
+if (-not $AppDir) {
+  $scriptPath = $PSCommandPath
+  if (-not $scriptPath) { $scriptPath = $MyInvocation.MyCommand.Path }
+  if (-not $scriptPath) { $scriptPath = $MyInvocation.MyCommand.Definition }
+  if ($scriptPath) {
+    $AppDir = Split-Path -Parent (Split-Path -Parent $scriptPath)
+  } else {
+    $AppDir = (Get-Location).Path
+  }
+}
+if (-not $AppDir -or -not (Test-Path $AppDir)) { Die "无法确定项目目录，请用 -AppDir 指定" }
 
 Say ""
 Say "=== 社团招新系统 · cpolar 双站点发布 ==="
@@ -144,26 +158,35 @@ Ok "已写入 $startScript"
 
 # ── 4. 注册计划任务 ──
 Say ""
-Say "[4/5] 注册计划任务（登录自启）"
+Say "[4/5] 配置开机自启"
 $taskName = 'Community-Cpolar'
 $arg = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $startScript + '"'
-$action   = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arg -WorkingDirectory $cpolarDir
-$trigger  = New-ScheduledTaskTrigger -AtLogOn
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-              -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero)
+
+# 优先用「启动文件夹」：不需要管理员权限，最可靠。
+# 计划任务里 -AtLogOn 的注册需要提权（Register-ScheduledTask 会报 Access is denied），
+# 所以这里只在"已经存在同名任务"时顺手清理掉，避免重复启动。
+$startupDir = [Environment]::GetFolderPath('Startup')
+$startupCmd = Join-Path $startupDir 'community-cpolar.cmd'
+$cmdBody = "@echo off`r`n" +
+           "rem 社团招新系统 cpolar 双隧道自启（学生端 3001 + 社团端 3000）`r`n" +
+           "rem 由 scripts/setup-tunnel.ps1 生成；不需要管理员权限`r`n" +
+           "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$startScript`"`r`n"
+[System.IO.File]::WriteAllText($startupCmd, $cmdBody, [System.Text.Encoding]::ASCII)
+Ok "已写入启动项：$startupCmd"
 
 if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
-  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-  Ok "已移除旧任务"
+  try {
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+    Ok "已清理同名计划任务（避免重复启动）"
+  } catch {
+    Warn "存在同名计划任务但无权限删除，可能重复启动；可手动在任务计划程序里删掉 $taskName"
+  }
 }
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings `
-  -Description '社团招新系统 cpolar 内网穿透（学生端 + 社团端）' | Out-Null
-Ok "已注册计划任务 $taskName"
 
 # ── 5. 启动并打印地址 ──
 Say ""
 Say "[5/5] 启动隧道"
-Start-ScheduledTask -TaskName $taskName
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $startScript
 Say "  等待隧道建立（约 30 秒）…"
 Start-Sleep -Seconds 30
 
