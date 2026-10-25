@@ -51,6 +51,12 @@ const routes = [
         component: () => import('../views/MatchView.vue'),
         meta: { title: '智能匹配推荐', group: '社团端' },
       },
+      {
+        path: 'clusters',
+        name: 'clusters',
+        component: () => import('../views/ClusterView.vue'),
+        meta: { title: '候选人分组', group: '社团端' },
+      },
     ],
   },
 ];

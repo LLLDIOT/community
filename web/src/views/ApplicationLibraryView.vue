@@ -52,6 +52,20 @@
         <el-input v-model="query.keyword" placeholder="姓名 / 专业 / 学校" clearable style="width: 180px" @keyup.enter="load" @clear="load" />
         <el-button type="primary" @click="load">查询</el-button>
         <el-button :disabled="!query.clubId" @click="exportCsv">导出 CSV</el-button>
+        <el-tooltip
+          :content="mlReady ? '用语义模型给本社团所有简历抽取技能标签（不覆盖人工标签）' : '语义模型未就绪'"
+          placement="top"
+        >
+          <el-button
+            type="warning"
+            plain
+            :disabled="!query.clubId || !mlReady"
+            :loading="batchExtracting"
+            @click="runBatchExtract"
+          >
+            <el-icon><MagicStick /></el-icon>&nbsp;一键抽取技能
+          </el-button>
+        </el-tooltip>
         <el-button type="success" plain @click="$router.push('/interview')">
           <el-icon><Suitcase /></el-icon>&nbsp;去面试工作台
         </el-button>
@@ -188,6 +202,74 @@
           </el-descriptions-item>
         </el-descriptions>
 
+        <!-- 技能自动抽取（ML）：人工标签 vs 模型抽取，并排对照 -->
+        <div class="drawer-block">
+          <div class="drawer-title">
+            <el-icon><MagicStick /></el-icon>
+            技能自动抽取
+            <el-tooltip content="用中文语义模型从简历正文里读出技能；只写 skills_auto，不会覆盖学生/你手工填的标签" placement="top">
+              <el-icon class="help-icon"><QuestionFilled /></el-icon>
+            </el-tooltip>
+            <el-button
+              size="small"
+              type="primary"
+              plain
+              class="extract-btn"
+              :loading="extracting"
+              :disabled="!mlReady"
+              @click="runExtract"
+            >
+              {{ autoSkills.length ? '重新抽取' : '自动抽取技能' }}
+            </el-button>
+          </div>
+
+          <el-alert
+            v-if="!mlReady"
+            type="info"
+            :closable="false"
+            show-icon
+            class="ml-off-hint"
+            title="语义模型未就绪，自动抽取暂不可用（可改用人工标签筛选，不影响其他功能）"
+          />
+
+          <div v-if="autoSkills.length" class="auto-skills">
+            <div class="auto-row">
+              <span class="auto-label">人工标签</span>
+              <div class="auto-tags">
+                <el-tag v-for="s in splitSkills(drawer.app.skills)" :key="s" size="small" type="warning" effect="plain">{{ s }}</el-tag>
+                <span v-if="!drawer.app.skills" class="muted">（学生未填）</span>
+              </div>
+            </div>
+            <div class="auto-row">
+              <span class="auto-label">自动抽取</span>
+              <div class="auto-tags">
+                <el-tooltip
+                  v-for="d in autoSkills"
+                  :key="d.term"
+                  :content="`来源：${d.source === 'exact' ? '词表精确命中' : '语义近邻'}（${d.score}）`"
+                  placement="top"
+                >
+                  <el-tag
+                    size="small"
+                    :type="d.source === 'exact' ? 'success' : 'info'"
+                    :effect="d.source === 'exact' ? 'light' : 'plain'"
+                  >
+                    {{ d.term }}
+                  </el-tag>
+                </el-tooltip>
+              </div>
+            </div>
+            <div class="auto-hint">
+              <el-tag size="small" type="success" effect="plain">实心=词表命中</el-tag>
+              <el-tag size="small" type="info" effect="plain" style="margin-left: 6px">空心=语义推断</el-tag>
+              <span class="muted" style="margin-left: 8px">语义标签可能有误，请人工核对</span>
+            </div>
+          </div>
+          <div v-else-if="mlReady" class="muted auto-empty">
+            点右上角「自动抽取技能」，让模型从正文里读出学生没写全的技能
+          </div>
+        </div>
+
         <div class="drawer-block">
           <div class="drawer-title">简历正文</div>
           <div class="resume-content">{{ drawer.app.content || '（无在线简历内容）' }}</div>
@@ -316,7 +398,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { clubApi, recruitmentApi, positionApi, applicationApi, dictApi, matchApi, decisionApi } from '../api/index.js';
+import { clubApi, recruitmentApi, positionApi, applicationApi, dictApi, matchApi, decisionApi, mlApi } from '../api/index.js';
 import { isLoggedIn, account, can, init as initAuth } from '../stores/auth.js';
 import { TOKEN_KEY } from '../api/client.js';
 import LoginDialog from '../components/LoginDialog.vue';
@@ -589,9 +671,76 @@ async function openDetail(appId) {
   scoreForm.note = app.note || '';
   scoreForm.typeTag = app.type_tag || 'other';
   matchSuggs.value = null;
+  // 已有的自动标签：从 skills_auto 还原成 [{term, source:'stored'}]
+  autoSkills.value = (app.skills_auto || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((term) => ({ term, source: 'stored', score: null }));
   drawer.visible = true;
   // 有技能标签时自动算一次匹配推荐
   if (app.skills) loadMatchSuggestions();
+}
+
+/**
+ * 批量抽取：给本社团所有收到的简历跑一遍自动标签。
+ * 只写 skills_auto，不覆盖人工 skills；耗时与简历数成正比（模型有缓存，通常很快）。
+ */
+const batchExtracting = ref(false);
+
+async function runBatchExtract() {
+  if (!query.clubId) return;
+  batchExtracting.value = true;
+  try {
+    const r = await mlApi.extractClubSkills(query.clubId);
+    const okCount = (r.results || []).filter((x) => !x.error).length;
+    const failCount = (r.results || []).length - okCount;
+    ElMessage.success(
+      `完成：处理 ${okCount} 份简历${failCount ? `，${failCount} 份失败` : ''}`
+    );
+    await load();
+  } catch {
+    /* 拦截器已提示 */
+  } finally {
+    batchExtracting.value = false;
+  }
+}
+
+/* ---------- 技能自动抽取（ML） ---------- */
+const mlReady = ref(false);
+const extracting = ref(false);
+const autoSkills = ref([]);
+
+async function loadMlReady() {
+  try {
+    const st = await mlApi.status();
+    mlReady.value = Boolean(st?.ready);
+  } catch {
+    mlReady.value = false;
+  }
+}
+
+/**
+ * 跑一次自动抽取。
+ * 注意：只写 resume.skills_auto，**不会覆盖**人工 skills —— 这点在界面上也要说清楚，
+ * 否则用户会以为"模型把我填的标签改掉了"。
+ */
+async function runExtract() {
+  if (!drawer.app?.resume_id) return;
+  extracting.value = true;
+  try {
+    const r = await mlApi.extractResumeSkills(drawer.app.resume_id);
+    autoSkills.value = r.details || [];
+    const exact = autoSkills.value.filter((x) => x.source === 'exact').length;
+    const sem = autoSkills.value.filter((x) => x.source === 'semantic').length;
+    ElMessage.success(`抽取完成：词表命中 ${exact} 个，语义推断 ${sem} 个`);
+    // 刷新抽屉拿最新的 skills_auto
+    await refreshDrawer(drawer.app.id);
+  } catch {
+    /* 拦截器已提示 */
+  } finally {
+    extracting.value = false;
+  }
 }
 
 async function refreshDrawer(appId) {
@@ -742,6 +891,7 @@ onMounted(async () => {
   await initAuth();
   const d = await dictApi.get();
   Object.assign(dict, d);
+  loadMlReady();
   await loadClubs();
   // 支持从社团详情带 query 直达（clubId/recruitmentId/positionId）
   if (!query.clubId) return; // 无社团可看
@@ -836,6 +986,62 @@ onMounted(async () => {
   font-weight: 600;
   margin-bottom: 8px;
   font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.extract-btn {
+  margin-left: auto;
+}
+.help-icon {
+  color: #c0c4cc;
+  cursor: help;
+  font-size: 13px;
+}
+.ml-off-hint {
+  margin-bottom: 8px;
+}
+.auto-skills {
+  background: #f7f9fc;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.auto-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.auto-row:last-of-type {
+  margin-bottom: 0;
+}
+.auto-label {
+  font-size: 12px;
+  color: #909399;
+  flex-shrink: 0;
+  width: 60px;
+  line-height: 24px;
+}
+.auto-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+.auto-tags :deep(.el-tag) {
+  margin: 0;
+}
+.auto-hint {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed #e4e7ed;
+  font-size: 11.5px;
+  line-height: 1.8;
+}
+.auto-empty {
+  font-size: 12.5px;
+  line-height: 1.7;
 }
 .resume-content {
   white-space: pre-wrap;

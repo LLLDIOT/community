@@ -45,7 +45,31 @@
         <el-divider content-position="left">
           匹配结果 · {{ matchResult.resume.student_name }}
           <el-tag size="small" type="warning" style="margin-left: 8px">技能：{{ matchResult.resume.skills || '未填写' }}</el-tag>
+          <el-tag
+            v-if="matchResult.method"
+            size="small"
+            :type="matchResult.method === 'semantic+tags' ? 'success' : 'info'"
+            effect="dark"
+            style="margin-left: 6px"
+          >
+            {{ matchResult.method === 'semantic+tags' ? '语义匹配' : '规则匹配' }}
+          </el-tag>
         </el-divider>
+
+        <el-alert
+          v-if="matchResult.method === 'semantic+tags'"
+          type="info"
+          :closable="false"
+          show-icon
+          class="method-hint"
+        >
+          <template #default>
+            分数 = <b>语义相似度 × 60%</b> + <b>技能命中率 × 40%</b>。
+            语义部分由中文预训练模型计算，能识别同义表述（如「文案」≈「文案写作」）；
+            技能命中率是字面完全相同才算命中。卡片下方给出了拆解。
+          </template>
+        </el-alert>
+
         <el-empty v-if="matchResult.recommendations.length === 0" description="暂无任何岗位可匹配（可先给岗位配置期望技能）" />
         <div v-else class="match-list">
           <el-card
@@ -73,6 +97,21 @@
                 </template>
                 <span v-if="!rec.hitSkills.length && !rec.missingSkills.length" class="muted">岗位未配置期望技能</span>
               </div>
+
+              <!-- 分数拆解：让"88 分"有解释，而不是一个黑箱数字 -->
+              <div v-if="rec.semantics" class="score-breakdown">
+                <el-tooltip :content="`余弦相似度 ${rec.semantics.cosine}`" placement="top">
+                  <span class="bd-item">
+                    <i class="bd-dot semantic" />
+                    语义 <b>{{ rec.semantics.calibrated }}</b>
+                  </span>
+                </el-tooltip>
+                <span class="bd-item">
+                  <i class="bd-dot tag" />
+                  技能 <b>{{ rec.tags.score }}</b>
+                  <span class="bd-note">（{{ rec.hitSkills.length }}/{{ rec.hitSkills.length + rec.missingSkills.length }} 命中）</span>
+                </span>
+              </div>
             </div>
             <div class="match-score-col">
               <el-progress
@@ -81,6 +120,7 @@
                 :width="64"
                 :color="scoreColor(rec.score)"
               />
+              <div class="score-label">综合</div>
             </div>
           </el-card>
         </div>
@@ -303,5 +343,54 @@ async function loadAllResumes() {
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+
+/* ── 分数拆解：语义分 / 技能分 ── */
+.method-hint {
+  margin-bottom: 12px;
+  line-height: 1.8;
+}
+.score-breakdown {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #ebeef5;
+  font-size: 12px;
+  color: #606266;
+  flex-wrap: wrap;
+}
+.bd-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.bd-item b {
+  color: #1f2d3d;
+  font-size: 13px;
+}
+.bd-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.bd-dot.semantic {
+  background: #409eff;
+}
+.bd-dot.tag {
+  background: #e6a23c;
+}
+.bd-note {
+  color: #909399;
+  font-size: 11.5px;
+}
+.score-label {
+  text-align: center;
+  font-size: 11px;
+  color: #909399;
+  margin-top: 2px;
 }
 </style>

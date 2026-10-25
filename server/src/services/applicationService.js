@@ -35,6 +35,7 @@ function getApplicationById(id, { withJoins = false } = {}) {
                 club.name AS club_name,
                 res.student_name, res.phone, res.email, res.school, res.major,
                 res.grade, res.content, res.attachment_path, res.skills,
+                res.skills_auto,
                 adj.title AS adjust_position_title
          FROM application app
          JOIN position pos ON pos.id = app.position_id

@@ -65,10 +65,24 @@ export const dashboardApi = {
 
 /* ---------- 智能匹配 ---------- */
 export const matchApi = {
-  /** 简历 → 推荐岗位（跨社团匹配度排序） */
+  /** 简历 → 推荐岗位（跨社团匹配度排序，语义版） */
   matchTop: (resumeId, params) => http.get(`/resumes/${resumeId}/match-top`, params),
+  /** 单个「简历 × 岗位」的匹配解释（语义分 + 标签拆解） */
+  matchPosition: (resumeId, positionId) => http.get(`/resumes/${resumeId}/match-position/${positionId}`),
   /** 社团侧：未录取投递者与 open 岗位的高分组合 */
   matchApplicants: (clubId, params) => http.get(`/clubs/${clubId}/match-applicants`, params),
+};
+
+/* ---------- 机器学习层 ---------- */
+export const mlApi = {
+  /** 模型状态：是否就绪、模型名、维度、匹配模式（semantic / rules） */
+  status: () => http.get('/ml/status'),
+  /** 对单份简历做技能自动抽取（写回 skills_auto，不覆盖人工 skills） */
+  extractResumeSkills: (resumeId) => http.post(`/ml/resumes/${resumeId}/auto-skills`, {}),
+  /** 批量刷新某社团所有简历的自动标签 */
+  extractClubSkills: (clubId) => http.post(`/ml/clubs/${clubId}/auto-skills`, {}),
+  /** 候选人无监督聚类 */
+  clusters: (clubId, params) => http.get(`/ml/clubs/${clubId}/clusters`, params),
 };
 
 /* ---------- 社团端账号（登录与按人权限） ---------- */

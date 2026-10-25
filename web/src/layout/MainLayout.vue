@@ -40,6 +40,10 @@
           <el-icon><MagicStick /></el-icon>
           <span>智能匹配推荐</span>
         </el-menu-item>
+        <el-menu-item index="/clusters">
+          <el-icon><Connection /></el-icon>
+          <span>候选人分组</span>
+        </el-menu-item>
       </el-menu>
 
       <!-- 底部：登录态 + 学生端入口 -->
@@ -56,6 +60,14 @@
         <el-button v-else type="primary" size="small" class="login-btn" @click="loginVisible = true">
           <el-icon><Key /></el-icon> 登录社团账号
         </el-button>
+
+        <!-- 机器学习层状态：出问题时一眼看出是"模型没加载"还是"功能本身有问题" -->
+        <el-tooltip :content="mlTooltip" placement="right">
+          <div class="ml-badge" :class="mlClass" @click="openMlStatus">
+            <span class="ml-dot" />
+            {{ mlLabel }}
+          </div>
+        </el-tooltip>
 
         <a :href="studentUrl" target="_blank" rel="noopener" class="student-link">
           📱 学生投递端 ↗
@@ -84,9 +96,9 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { isLoggedIn, account, init as initAuth, logout as doLogout } from '../stores/auth.js';
-import { dictApi } from '../api/index.js';
+import { dictApi, mlApi } from '../api/index.js';
 import LoginDialog from '../components/LoginDialog.vue';
 
 const route = useRoute();
@@ -98,6 +110,64 @@ const loginVisible = ref(false);
  */
 const studentUrl = ref('/portal.html');
 const studentUrlIsSeparate = ref(false);
+
+/* ── 机器学习层状态 ── */
+const ml = ref({ enabled: null, ready: false, model: '', dim: 0, matchMode: '', note: '', error: null });
+
+const mlLabel = computed(() => {
+  if (ml.value.enabled === null) return 'ML 检测中…';
+  if (!ml.value.enabled) return 'ML 已关闭';
+  return ml.value.ready ? '语义匹配已启用' : '规则模式（模型未就绪）';
+});
+
+const mlClass = computed(() => {
+  if (ml.value.enabled === null) return 'ml-wait';
+  if (!ml.value.enabled) return 'ml-off';
+  return ml.value.ready ? 'ml-on' : 'ml-warn';
+});
+
+const mlTooltip = computed(() => {
+  if (ml.value.enabled === null) return '正在检测语义模型状态…';
+  if (!ml.value.enabled) return 'ML_ENABLED=0，当前为纯规则匹配（字符串命中）';
+  if (ml.value.ready) {
+    return `${ml.value.model}（${ml.value.dim} 维）\n匹配模式：语义 + 技能标签融合\n点击查看详情`;
+  }
+  return `模型未就绪${ml.value.error ? `：${ml.value.error}` : ''}\n匹配已自动回退为规则模式，功能不受影响\n点击查看详情`;
+});
+
+async function loadMlStatus() {
+  try {
+    const st = await mlApi.status();
+    ml.value = {
+      enabled: Boolean(st?.enabled),
+      ready: Boolean(st?.ready),
+      model: st?.model || '',
+      dim: st?.dim || 0,
+      matchMode: st?.matchMode || '',
+      note: st?.note || '',
+      error: st?.error || null,
+    };
+  } catch {
+    ml.value = { enabled: false, ready: false, model: '', dim: 0, matchMode: '', note: '', error: '状态获取失败' };
+  }
+}
+
+async function openMlStatus() {
+  await loadMlStatus();
+  const m = ml.value;
+  const lines = [
+    `状态：${m.enabled ? (m.ready ? '已就绪' : '未就绪（已回退规则模式）') : '已关闭（ML_ENABLED=0）'}`,
+    m.model ? `模型：${m.model}（${m.dim} 维）` : '',
+    m.matchMode ? `匹配模式：${m.matchMode === 'semantic' ? '语义 + 标签融合' : '规则（字符串命中）'}` : '',
+    m.note ? `\n${m.note}` : '',
+    m.error ? `\n错误：${m.error}` : '',
+    '\n说明：模型不可用时系统会自动降级，所有功能仍可正常使用。',
+  ].filter(Boolean);
+  ElMessageBox.alert(lines.join('\n'), '机器学习层状态', {
+    confirmButtonText: '知道了',
+    customStyle: { whiteSpace: 'pre-line' },
+  }).catch(() => {});
+}
 
 async function loadSiteInfo() {
   try {
@@ -116,6 +186,7 @@ const activeMenu = computed(() => {
   if (route.path.startsWith('/interview')) return '/interview';
   if (route.path.startsWith('/clubs')) return '/clubs';
   if (route.path.startsWith('/applications')) return '/applications';
+  if (route.path.startsWith('/clusters')) return '/clusters';
   if (route.path.startsWith('/match')) return '/match';
   if (route.path.startsWith('/dashboard')) return '/dashboard';
   return route.path;
@@ -129,6 +200,7 @@ async function onLogout() {
 onMounted(() => {
   initAuth();
   loadSiteInfo();
+  loadMlStatus();
 });
 </script>
 
@@ -226,6 +298,48 @@ onMounted(() => {
   font-size: 11px;
   text-align: center;
   margin-top: 4px;
+}
+
+/* ── 机器学习层状态徽标 ── */
+.ml-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.6);
+  transition: background 0.15s;
+}
+.ml-badge:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+.ml-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #909399;
+  flex-shrink: 0;
+}
+.ml-on {
+  color: #a8e6a3;
+}
+.ml-on .ml-dot {
+  background: #67c23a;
+  box-shadow: 0 0 6px #67c23a;
+}
+.ml-warn {
+  color: #f0c78a;
+}
+.ml-warn .ml-dot {
+  background: #e6a23c;
+}
+.ml-off .ml-dot {
+  background: #606266;
 }
 
 .layout-header {
