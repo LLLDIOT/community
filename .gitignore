@@ -30,3 +30,6 @@ Thumbs.db
 # 本地工作产物（会话导入分析、临时调试脚本），不入库
 .dsh-import/
 clash-github-test.mjs
+# .env 的自动备份（含明文密码，绝不能提交）
+*.env.bak*
+.env.bak*
