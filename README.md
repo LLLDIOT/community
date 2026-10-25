@@ -35,6 +35,7 @@ community/
 │  └─ DEPLOY_CLOUD.md   # ☁️ 香港/海外服务器（Docker 一键部署）
 │  └─ DEPLOY_CN_TRIAL.md# 🇨🇳 国内云免费试用（不需信用卡；原生部署，不依赖 Docker Hub）
 │  └─ DEPLOY_FREE_VM.md # 🆓 永久免费 VM（Oracle / GCP，需信用卡）
+│  └─ ML_PERSPECTIVE.md # 🧠 从机器学习视角解析本系统（含实测对比与升级路线）
 ├─ server/              # Express API（M1-M2 ✅）
 │  ├─ db/migrations/    # 001~004 建库/升级脚本（004 = 社团端改造）
 │  ├─ src/routes/       # 含 authRoutes / squareRoutes / decisionRoutes
