@@ -37,6 +37,7 @@ community/
 │  └─ DEPLOY_FREE_VM.md # 🆓 永久免费 VM（Oracle / GCP，需信用卡）
 │  └─ ML_PERSPECTIVE.md # 🧠 从机器学习视角解析本系统（含实测对比与升级路线）
 │  └─ RUNTIME.md        # ⚙️ 运行时详解：每一步在做什么 + 背后的知识点（1334 行）
+│  └─ ML_INTERNALS.md   # 🧬 ML 层深度讲解：嵌入/校准/聚类等 11 章逐步拆解（1519 行）
 ├─ server/              # Express API（M1-M2 ✅）
 │  ├─ db/migrations/    # 001~004 建库/升级脚本（004 = 社团端改造）
 │  ├─ src/routes/       # 含 authRoutes / squareRoutes / decisionRoutes

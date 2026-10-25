@@ -17,7 +17,9 @@
                     "data:export":  "node scripts/export-data.mjs",
                     "data:import":  "node scripts/import-data.mjs",
                     "ml:verify":  "node scripts/verify-ml.mjs",
-                    "ml:verify:http":  "node scripts/verify-ml-http.mjs"
+                    "ml:verify:http":  "node scripts/verify-ml-http.mjs",
+                    "ml:calibration":  "node scripts/verify-calibration.mjs",
+                    "ml:probe":  "node scripts/probe-embedding.mjs"
                 },
     "engines":  {
                     "node":  "\u003e=20"
