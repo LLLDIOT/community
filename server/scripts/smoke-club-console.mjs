@@ -145,26 +145,73 @@ const cleanup = { applicationIds: [], resumeIds: [], accountIds: [] };
 
   /* ---------- ② 登录 ---------- */
   console.log('\n② 社团账号登录（按人权限）');
-  const accountsFile = await import('node:fs').then((fs) =>
+
+  /*
+   * 凭据发现：不能把密码写死在测试里。
+   *
+   * data/initial-accounts.txt 的约定是「追加写，最后一行覆盖之前的」，
+   * 所以这里按「从后往前」依次尝试，直到有一个能登录成功。
+   * 这样即使中途执行过 reset-all-passwords.mjs 改过密码，测试也能自动适配。
+   *
+   * 也支持显式覆盖：SMOKE_CLUB_USER / SMOKE_CLUB_PASS 环境变量优先级最高。
+   *
+   * ⚠️ 曾经的 bug：这里只取文件「第一行」，与该文件「最后一行覆盖」的约定相反，
+   *    导致改过密码后测试整片失败（87 项）。
+   */
+  const accountsText = await import('node:fs').then((fs) =>
     fs.existsSync(new URL('../data/initial-accounts.txt', import.meta.url))
       ? fs.readFileSync(new URL('../data/initial-accounts.txt', import.meta.url), 'utf8')
       : ''
   );
-  const firstLine = accountsFile
-    .split(/\r?\n/)
-    .find((l) => l && !l.startsWith('#'));
-  if (!firstLine) {
-    console.log('  ⚠️ 未找到 data/initial-accounts.txt，跳过登录相关用例');
-  }
-  const [, userPart, passPart] = firstLine?.split('\t') || [];
-  const seededUser = (userPart || '').replace('账号=', '');
-  const seededPass = (passPart || '').replace('密码=', '');
-  check('读到初始社长账号', Boolean(seededUser && seededPass), firstLine);
 
-  const login = await api('/auth/login', { method: 'POST', body: { username: seededUser, password: seededPass } });
-  check('POST /auth/login 200', login.status === 200, JSON.stringify(login.body).slice(0, 200));
-  const token = login.body?.data?.token;
-  const me = login.body?.data?.account;
+  const credLines = accountsText
+    .split(/\r?\n/)
+    .filter((l) => l && !l.startsWith('#') && l.includes('账号=') && l.includes('密码='));
+
+  const candidates = [];
+  if (process.env.SMOKE_CLUB_USER && process.env.SMOKE_CLUB_PASS) {
+    candidates.push({
+      user: process.env.SMOKE_CLUB_USER,
+      pass: process.env.SMOKE_CLUB_PASS,
+      from: '环境变量',
+    });
+  }
+  for (let i = credLines.length - 1; i >= 0; i -= 1) {
+    const parts = credLines[i].split('\t');
+    // 行尾可能带 "# 说明" 注释，必须剥掉，否则会被当成密码的一部分
+    const strip = (s) => String(s || '').split('#')[0].trim();
+    const user = strip((parts.find((p) => p.startsWith('账号=')) || '').replace('账号=', ''));
+    const pass = strip((parts.find((p) => p.startsWith('密码=')) || '').replace('密码=', ''));
+    if (user && pass) candidates.push({ user, pass, from: parts[0] || '记录' });
+  }
+
+  let seededUser = '';
+  let seededPass = '';
+  let login = null;
+  let usedFrom = '';
+  for (const c of candidates) {
+    const r = await api('/auth/login', { method: 'POST', body: { username: c.user, password: c.pass } });
+    if (r.status === 200) {
+      seededUser = c.user;
+      seededPass = c.pass;
+      login = r;
+      usedFrom = c.from;
+      break;
+    }
+  }
+
+  check(
+    '能用初始账号登录（按"最后一行优先"自动发现凭据）',
+    Boolean(login),
+    candidates.length === 0
+      ? '既没有 SMOKE_CLUB_USER/PASS，data/initial-accounts.txt 里也没有可用凭据'
+      : `尝试了 ${candidates.length} 组凭据均失败；请运行 node scripts/reset-all-passwords.mjs 或设置 SMOKE_CLUB_PASS`
+  );
+  if (login) console.log(`     使用凭据：${seededUser}（来自${usedFrom}）`);
+
+  check('POST /auth/login 200', login?.status === 200, JSON.stringify(login?.body).slice(0, 200));
+  const token = login?.body?.data?.token;
+  const me = login?.body?.data?.account;
   check('登录返回 token', Boolean(token));
   check('登录返回角色与能力清单', me?.role === 'owner' && Array.isArray(me?.capabilities), JSON.stringify(me));
   check('owner 具备 club:edit 与 application:decide',

@@ -22,7 +22,10 @@ const req = async (p, opts = {}) => {
 
 const login = await req('/auth/login', {
   method: 'POST',
-  body: JSON.stringify({ username: 'owner_f69511', password: 'Srf7pS8r' }),
+  body: JSON.stringify({
+    username: process.env.CLUB_USER || 'owner_f69511',
+    password: process.env.CLUB_PASS || '12345',
+  }),
 });
 if (login.status !== 200) {
   console.error('登录失败，请先在脚本里改成你当前的社长密码');

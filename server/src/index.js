@@ -30,6 +30,25 @@ ensureSeedAccounts();
 // 模型没就绪时匹配自动走规则降级，绝不让服务因为模型起不来而不可用。
 warmupML();
 
+/* ══════════ 弱密码告警 ══════════ */
+/*
+ * 社团端会暴露学生简历（姓名/电话/邮箱），一旦发布到公网，
+ * 全站密码就是唯一的门禁。密码太短就等于没有门禁，所以启动时明确警告。
+ * 这里只告警、不阻断——本地开发时用简单密码是合理的。
+ */
+if (process.env.BASIC_AUTH_DISABLE !== '1') {
+  const pass = String(process.env.BASIC_AUTH_PASS || '');
+  if (!pass) {
+    console.warn('[安全] 未设置 BASIC_AUTH_PASS，社团端将使用默认密码 —— 切勿发布到公网！');
+  } else if (pass.length < 8) {
+    console.warn(
+      `[安全] 全站密码仅 ${pass.length} 位（${pass}），强度过低。` +
+        '若本机已通过隧道发布到公网，任何人试几次即可进入管理台、查看并删改简历数据。' +
+        '恢复强密码：node scripts/reset-all-passwords.mjs <新的强密码>'
+    );
+  }
+}
+
 const clubPort = Number(process.env.PORT || 3000);
 const studentPort = Number(process.env.STUDENT_PORT ?? 3001);
 
