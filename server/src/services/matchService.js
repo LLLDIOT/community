@@ -1,181 +1,96 @@
+/**
+ * 匹配服务 —— 对外统一接口
+ *
+ * ── 这一层现在只做「分发」──
+ *   ML 可用  → 走 src/ml/semanticMatchService.js（预训练中文嵌入 + 标签融合）
+ *   ML 不可用 → 走本文件内的规则基线（字符串集合求交）
+ *
+ * 为什么保留规则路径：
+ *   1. 模型首次下载失败 / 离线 / 依赖缺失时，系统必须还能用
+ *   2. 规则分是可解释的辅助信号（"命中了哪几个技能"在招新场景必须说得出）
+ *   3. 作为对照基线，才能衡量语义匹配到底提升了多少
+ *
+ * ⚠️ 这两个函数已改为 **async**（要跑模型推理）。调用方必须 await，
+ *    路由层请用 utils/asyncHandler.js 包裹，否则 Express 4 不会捕获 Promise 异常。
+ */
+import * as semantic from '../ml/semanticMatchService.js';
+import { ML_ENABLED, isReady, getStatus } from '../ml/embeddingService.js';
 import { db } from '../db/connection.js';
 import { notFound } from '../utils/errors.js';
 
-/**
- * 技能标签解析与归一化
- * 输入："Vue, Node.js ，沟通" → ["vue", "node.js", "沟通"]
- * - 支持中英文逗号/顿号分隔
- * - 忽略空项；小写化便于英文标签精确匹配
- * - 保留内部空格（如 "Node.js"），仅去除首尾空格
- */
-export function parseSkills(raw) {
-  if (!raw) return [];
-  const tokens = String(raw).split(/[,，、;；]/);
-  return [...new Set(tokens.map((t) => t.trim().toLowerCase()).filter(Boolean))];
+// 纯规则工具从 skillTags 透出，保持旧引用路径可用
+export { parseSkills, matchSkills, jaccardSkills } from '../ml/skillTags.js';
+import { parseSkills, matchSkills } from '../ml/skillTags.js';
+
+/** 当前匹配能力状态（供 /api/v1/ml/status 与前端展示） */
+export function matchCapability() {
+  const st = getStatus();
+  return {
+    mode: st.enabled && st.ready ? 'semantic' : 'rules',
+    ml: st,
+    note:
+      st.enabled && st.ready
+        ? '语义匹配已启用（预训练中文嵌入 bge-small-zh + 标签融合）'
+        : '语义匹配未就绪，当前为规则匹配（字符串命中）',
+  };
 }
 
 /**
- * 计算一份简历技能与岗位期望技能的匹配度。
- * @param {string|string[]} resumeSkillsRaw 简历技能（原始字符串或已解析数组）
- * @param {string|string[]} requiredRaw 岗位期望技能
- * @returns {{score: number, hitSkills: string[], missingSkills: string[], resumeSkills: string[], requiredSkills: string[]}}
+ * 简历 → 推荐岗位
+ * @returns {Promise<{resume, recommendations, total, method}>}
+ */
+export async function recommendPositionsForResume(resumeId, opts = {}) {
+  return semantic.recommendPositionsForResume(resumeId, opts);
+}
+
+/**
+ * 社团侧：发现"投错岗"的人（语义版）
+ * @returns {Promise<Array>}
+ */
+export async function matchClubApplicants(clubId, opts = {}) {
+  return semantic.matchClubApplicants(clubId, opts);
+}
+
+/**
+ * 同步版：单份简历 vs 单个岗位的**规则**匹配度
  *
- * score = 命中数 / 期望数（期望为空时返回 0 且缺技能为空，避免除零）
- * score 取整百分比 0-100。
+ * 保留这个是为了兼容那些"只在列表里显示一行提示"的场景（如面试工作台），
+ * 那里不适合为每个候选人 inflight 一次模型推理。
+ * 需要真正的语义分请 await recommendPositionsForResume / scoreResumeVsPosition。
  */
-export function matchSkills(resumeSkillsRaw, requiredRaw) {
-  const resumeSkills = Array.isArray(resumeSkillsRaw)
-    ? resumeSkillsRaw
-    : parseSkills(resumeSkillsRaw);
-  const requiredSkills = Array.isArray(requiredRaw)
-    ? requiredRaw
-    : parseSkills(requiredRaw);
-
-  if (requiredSkills.length === 0) {
-    return { score: 0, hitSkills: [], missingSkills: [], resumeSkills, requiredSkills };
-  }
-
-  const resumeSet = new Set(resumeSkills);
-  const hitSkills = requiredSkills.filter((s) => resumeSet.has(s));
-  const missingSkills = requiredSkills.filter((s) => !resumeSet.has(s));
-  const score = Math.round((hitSkills.length / requiredSkills.length) * 100);
-
-  return { score, hitSkills, missingSkills, resumeSkills, requiredSkills };
-}
-
-/** 简历详情中的匹配对象形状 */
-function positionMatchRow(pos, resumeSkillsParsed) {
-  const m = matchSkills(resumeSkillsParsed, pos.required_skills);
-  return {
-    positionId: pos.id,
-    positionTitle: pos.title,
-    recruitmentId: pos.recruitment_id,
-    recruitmentTitle: pos.recruitment_title,
-    clubId: pos.club_id,
-    clubName: pos.club_name,
-    headcount: pos.headcount,
-    filledCount: pos.filled_count,
-    status: pos.status, // recruitment 状态
-    ...m,
-  };
+export function matchSkillsRuleOnly(resumeSkillsRaw, requiredRaw) {
+  return matchSkills(resumeSkillsRaw, requiredRaw);
 }
 
 /**
- * 为一份简历推荐最匹配的招新岗位（全平台，或限定社团）。
- * @param {string} resumeId
- * @param {object} [opts]
- * @param {string} [opts.clubId]      限定某个社团（"自动匹配社团"场景：跨社团匹配推荐则传空）
- * @param {number} [opts.limit=10]
- * @param {number} [opts.minScore=0]   只返回高于该分数的岗位
- * @returns {{resume: object, recommendations: Array}}
+ * 语义版：单份简历 vs 单个岗位（供"为什么推荐他"这类解释场景按需调用）
  */
-export function recommendPositionsForResume(resumeId, { clubId = '', limit = 10, minScore = 0 } = {}) {
-  const resume = db.prepare('SELECT id, student_name, skills, grade, major FROM resume WHERE id = ?').get(resumeId);
+export async function scoreResumeVsPosition(resumeId, positionId) {
+  const resume = db.prepare('SELECT * FROM resume WHERE id = ?').get(resumeId);
   if (!resume) throw notFound('简历不存在');
-  const resumeSkills = parseSkills(resume.skills);
+  const pos = db
+    .prepare(
+      `SELECT p.*, r.title AS recruitment_title, c.name AS club_name
+       FROM position p
+       JOIN recruitment r ON r.id = p.recruitment_id
+       JOIN club c ON c.id = r.club_id
+       WHERE p.id = ?`
+    )
+    .get(positionId);
+  if (!pos) throw notFound('招新岗位不存在');
 
-  // 招新进行中(open)的岗位 + 还有名额(录取数 < 需求数) 优先；也把 closed/draft 留作展示可选
-  const where = ['1=1'];
-  const params = {};
-  if (clubId) {
-    where.push('rec.club_id = @clubId');
-    params.clubId = clubId;
+  if (!ML_ENABLED || !isReady()) {
+    const m = matchSkills(resume.skills, pos.required_skills);
+    return { ...m, semantics: null, method: 'tags-only' };
   }
 
-  const rows = db
-    .prepare(
-      `SELECT pos.id, pos.title, pos.recruitment_id, pos.required_skills,
-              pos.headcount, pos.filled_count,
-              rec.title AS recruitment_title, rec.status, rec.club_id,
-              club.name AS club_name
-       FROM position pos
-       JOIN recruitment rec ON rec.id = pos.recruitment_id
-       JOIN club ON club.id = rec.club_id
-       WHERE ${where.join(' AND ')}
-       ORDER BY rec.status = 'open' DESC, rec.created_at DESC`
-    )
-    .all(params);
-
-  const scored = rows
-    .map((r) => positionMatchRow(r, resumeSkills))
-    .filter((r) => r.score >= minScore)
-    .sort(
-      (a, b) =>
-        b.score - a.score ||
-        (b.status === 'open') - (a.status === 'open') ||
-        a.filledCount / Math.max(1, a.headcount) - b.filledCount / Math.max(1, b.headcount)
-    );
-
-  return {
-    resume: { id: resume.id, student_name: resume.student_name, skills: resume.skills || '', grade: resume.grade, major: resume.major },
-    recommendations: scored.slice(0, limit),
-    total: scored.length,
-  };
+  const { embedOwner } = await import('../ml/embeddingService.js');
+  const [rv, pv] = await Promise.all([
+    embedOwner('resume', resume.id, semantic.buildResumeText(resume)),
+    embedOwner('position', pos.id, semantic.buildPositionText(pos)),
+  ]);
+  return semantic.scorePair(rv, pv, resume.skills, pos.required_skills);
 }
 
-/**
- * 社团"自动匹配"视图：把某社团收到的简历与它的 open 岗位做全量匹配，
- * 用于看板/归档时发现"投错岗/漏推岗"的高分组合。
- * @param {string} clubId
- * @returns {Array<{applicationId, studentName, fromPosition, toPosition:{...}, match}>}
- */
-export function matchClubApplicants(clubId, { limit = 50 } = {}) {
-  const rows = db
-    .prepare(
-      `SELECT app.id AS application_id, app.resume_id, res.student_name, res.skills,
-              fromPos.title AS from_position, app.status
-       FROM application app
-       JOIN resume res ON res.id = app.resume_id
-       JOIN position fromPos ON fromPos.id = app.position_id
-       JOIN recruitment rec ON rec.id = fromPos.recruitment_id
-       WHERE rec.club_id = @clubId AND app.status NOT IN ('admitted', 'archived')`
-    )
-    .all({ clubId });
-
-  const openPositions = db
-    .prepare(
-      `SELECT pos.id, pos.title, pos.required_skills, pos.headcount, pos.filled_count,
-              pos.recruitment_id, rec.title AS recruitment_title, rec.club_id,
-              club.name AS club_name, rec.status
-       FROM position pos
-       JOIN recruitment rec ON rec.id = pos.recruitment_id
-       JOIN club ON club.id = rec.club_id
-       WHERE rec.club_id = @clubId AND rec.status = 'open'`
-    )
-    .all({ clubId });
-
-  const out = [];
-  // 批量取出本社团内已存在的 (position_id, resume_id) 组合，避免循环内查询
-  const existingPairs = new Set(
-    db
-      .prepare(
-        `SELECT a.position_id || '|' || a.resume_id AS k
-         FROM application a
-         JOIN position p ON p.id = a.position_id
-         JOIN recruitment r ON r.id = p.recruitment_id
-         WHERE r.club_id = @clubId`
-      )
-      .all({ clubId })
-      .map((x) => x.k)
-  );
-
-  for (const app of rows) {
-    const resumeSkills = parseSkills(app.skills);
-    for (const pos of openPositions) {
-      if (existingPairs.has(`${pos.id}|${app.resume_id}`)) continue;
-      const m = positionMatchRow({ ...pos, recruitment_title: pos.recruitment_title }, resumeSkills);
-      if (m.score >= 50) {
-        out.push({
-          applicationId: app.application_id,
-          resumeId: app.resume_id,
-          studentName: app.student_name,
-          currentPosition: app.from_position,
-          appStatus: app.status,
-          suggested: m,
-        });
-      }
-    }
-  }
-  out.sort((a, b) => b.suggested.score - a.suggested.score);
-  return out.slice(0, limit);
-}
+/** 供内部复用：解析技能（保持旧函数名可用） */
+export const parseSkillsCompat = parseSkills;

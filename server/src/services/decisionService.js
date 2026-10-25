@@ -339,12 +339,13 @@ export function refreshPositionProgress(positionId) {
 /* ③ 调剂                                                              */
 /* ------------------------------------------------------------------ */
 
-/** 调剂建议：复用技能匹配引擎，找本社团内更合适的岗位 */
-export function suggestAdjust(applicationId, account) {
+/** 调剂建议：复用语义匹配引擎，找本社团内更合适的岗位 */
+export async function suggestAdjust(applicationId, account) {
   const row = loadApplicationClub(applicationId);
   assertClubScope(row, account);
 
-  const { recommendations } = recommendPositionsForResume(row.resume_id, {
+  // 匹配服务已升级为语义版（async），必须 await
+  const { recommendations } = await recommendPositionsForResume(row.resume_id, {
     clubId: account.clubId,
     limit: 20,
   });

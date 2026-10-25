@@ -1,5 +1,5 @@
 /**
- * 社团端改造 · 端到端冒烟测试
+ * 社团端 + 学生端 · 端到端冒烟测试
  *
  * 覆盖：
  *   ① 招新广场（全校社团总览 + 单社团招新情况/投递人数）
@@ -8,12 +8,22 @@
  *   ④ 面试决策：录用 / 候补序号 / 调剂 / 淘汰
  *   ⑤ 候补递补招满员
  *   ⑥ 权限矩阵：viewer 不能决策、别社团不能碰我的数据
+ *   ⑦ 公网安全：简历 PII、破坏性操作
+ *   ⑧ 两站点拆分：学生端白名单 / 社团端重定向
+ *   ⑨ 机器学习层：语义匹配、技能自动抽取、聚类
  *
  * 测试会自建临时简历与投递，跑完自动清理，不动用既有业务数据。
  *
  * 用法：node scripts/smoke-club-console.mjs
+ *
+ * 注意：社团端启用 Basic Auth 后，脚本会自动从 server/.env 读取凭据并带上；
+ *      学生端（:3001）不带——它本来就是公开站点。
  */
+import fs from 'node:fs';
+
 const BASE = process.env.SMOKE_BASE || 'http://localhost:3000/api/v1';
+const CLUB_ORIGIN = process.env.SMOKE_CLUB_ORIGIN || 'http://localhost:3000';
+const STUDENT_BASE = process.env.SMOKE_STUDENT_BASE || 'http://localhost:3001';
 
 let pass = 0;
 let fail = 0;
@@ -30,10 +40,53 @@ function check(name, cond, extra = '') {
   }
 }
 
+/**
+ * 全站 Basic Auth 凭据
+ *
+ * 社团端启用 BASIC_AUTH_* 之后，所有请求都必须带这层凭据，
+ * 否则连"测功能"都进不去（全部 401）。从 server/.env 读取，
+ * 与真实运行配置保持一致。
+ */
+function readBasicAuth() {
+  try {
+    const envPath = new URL('../.env', import.meta.url);
+    if (!fs.existsSync(envPath)) return null;
+    const txt = fs.readFileSync(envPath, 'utf8');
+    const get = (k, d = '') => {
+      const m = txt.match(new RegExp(`^${k}\\s*=\\s*(.*)$`, 'm'));
+      return m ? m[1].trim() : d;
+    };
+    if (get('BASIC_AUTH_DISABLE') === '1') return { disabled: true, header: '' };
+    const u = get('BASIC_AUTH_USER', 'admin');
+    const p = get('BASIC_AUTH_PASS', 'change-me');
+    return { disabled: false, header: 'Basic ' + Buffer.from(`${u}:${p}`).toString('base64') };
+  } catch {
+    return null;
+  }
+}
+
+const BASIC = readBasicAuth();
+if (BASIC && !BASIC.disabled) {
+  console.log('  （已从 server/.env 读取 Basic Auth 凭据，社团端请求会带上）');
+} else if (BASIC?.disabled) {
+  console.log('  （BASIC_AUTH_DISABLE=1，社团端无全站密码）');
+}
+
+/**
+ * 学生端站点请求（:3001，**不带** Basic Auth —— 它本来就是公开的）
+ */
+async function studentFetch(path, opts = {}) {
+  const res = await fetch(`${STUDENT_BASE}${path}`, opts);
+  const text = await res.text();
+  return { status: res.status, text };
+}
+
 async function api(path, { method = 'GET', body, token } = {}) {
   const headers = {};
+  if (BASIC?.header) headers.Authorization = BASIC.header;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
-  if (token) headers.Authorization = `Bearer ${token}`;
+  // 社团账号 token 走自定义头，避免与 Basic Auth 的 Authorization 打架
+  if (token) headers['X-Club-Token'] = token;
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers,
@@ -499,7 +552,10 @@ const cleanup = { applicationIds: [], resumeIds: [], accountIds: [] };
     JSON.stringify((undecided.body?.data?.list || []).map((r) => r.decision)));
 
   const csvRes = await fetch(`${BASE}/clubs/${ownerClubId}/applications/export?decision=hired`, {
-    headers: { 'X-Club-Token': token },
+    headers: {
+      'X-Club-Token': token,
+      ...(BASIC?.header ? { Authorization: BASIC.header } : {}),
+    },
   });
   const csvText = await csvRes.text();
   check('CSV 导出包含面试结论列', csvText.includes('面试结论'), csvText.slice(0, 120));
@@ -624,7 +680,7 @@ const cleanup = { applicationIds: [], resumeIds: [], accountIds: [] };
 
   /* ---------- ⑭ 两个独立站点：学生端（无密码）vs 社团端（有密码） ---------- */
   console.log('\n⑭ 站点拆分（学生端 / 社团端）');
-  const STUDENT = process.env.SMOKE_STUDENT_BASE || 'http://localhost:3001';
+  const STUDENT = STUDENT_BASE;
 
   const rawFetch = async (url, opts = {}) => {
     const res = await fetch(url, opts);
@@ -636,8 +692,18 @@ const cleanup = { applicationIds: [], resumeIds: [], accountIds: [] };
   check('学生端独立监听并探活', studentHealth.status === 200 && studentHealth.text.includes('student'),
     `status=${studentHealth.status} body=${studentHealth.text.slice(0, 80)}`);
 
-  const clubHealth = await rawFetch('http://localhost:3000/healthz');
-  check('社团端探活标识为 club', clubHealth.status === 200 && clubHealth.text.includes('club'));
+  // 社团端健康检查要带 Basic Auth（启用全站密码后，连 healthz 也在门禁内）
+  const clubHealth = await fetch(`${CLUB_ORIGIN}/healthz`, {
+    headers: BASIC?.header ? { Authorization: BASIC.header } : {},
+  }).then(async (r) => ({ status: r.status, text: await r.text() }));
+  check('社团端探活标识为 club', clubHealth.status === 200 && clubHealth.text.includes('club'),
+    `status=${clubHealth.status}`);
+
+  // 顺带验证门禁本身：不带密码应当被拒
+  if (BASIC && !BASIC.disabled) {
+    const noAuth = await fetch(`${CLUB_ORIGIN}/api/v1/clubs`).then((r) => r.status);
+    check('社团端未带全站密码被拒（401）', noAuth === 401, `status=${noAuth}`);
+  }
 
   const studentRoot = await rawFetch(`${STUDENT}/`);
   check('学生端根路径就是投递页（不是某个子路径）', studentRoot.status === 200,
@@ -700,8 +766,11 @@ const cleanup = { applicationIds: [], resumeIds: [], accountIds: [] };
     check(`学生端拒绝「${desc}」（404）`, r.status === 404, `status=${r.status}`);
   }
 
-  // 社团端的 /portal.html 应重定向到学生端
-  const redirectRes = await fetch('http://localhost:3000/portal.html', { redirect: 'manual' });
+  // 社团端的 /portal.html 应重定向到学生端（带 Basic Auth，否则会先被门禁拦下）
+  const redirectRes = await fetch(`${CLUB_ORIGIN}/portal.html`, {
+    redirect: 'manual',
+    headers: BASIC?.header ? { Authorization: BASIC.header } : {},
+  });
   check('社团端 /portal.html 重定向到学生端',
     redirectRes.status === 302 && (redirectRes.headers.get('location') || '').includes(':3001'),
     `status=${redirectRes.status} location=${redirectRes.headers.get('location')}`);
@@ -713,7 +782,73 @@ const cleanup = { applicationIds: [], resumeIds: [], accountIds: [] };
   check('字典标记学生端为独立站点', dictForSite.body?.data?.studentSiteEnabled === true);
 
   /* ---------- 清理 ---------- */
-  console.log('\n⑮ 清理测试数据');
+  /* ---------- ⑮ 机器学习层 ---------- */
+  console.log('\n⑮ 机器学习层（语义匹配 / 技能抽取 / 聚类）');
+
+  const mlStatus = await api('/ml/status', { token });
+  check('GET /ml/status 可读', mlStatus.status === 200, `status=${mlStatus.status}`);
+  const mls = mlStatus.body?.data || {};
+  check('模型信息完整（模型名 + 维度）', Boolean(mls.model) && Number(mls.dim) > 0,
+    `model=${mls.model} dim=${mls.dim}`);
+  console.log(`     → enabled=${mls.enabled} ready=${mls.ready} matchMode=${mls.matchMode}`);
+
+  // 语义匹配：结果要带 semantics 明细
+  const semMatch = await api(`/resumes/${resumeId}/match-top?limit=5`, { token });
+  check('语义匹配接口可用', semMatch.status === 200, `status=${semMatch.status}`);
+  const smd = semMatch.body?.data || {};
+  check('返回匹配方法标识', typeof smd.method === 'string', `method=${smd.method}`);
+  const rec0 = (smd.recommendations || [])[0];
+  if (mls.ready) {
+    check('语义模式下 method = semantic+tags', smd.method === 'semantic+tags', `method=${smd.method}`);
+    check('每个推荐项都带 semantics 明细（余弦/校准分）',
+      Boolean(rec0?.semantics && typeof rec0.semantics.cosine === 'number'),
+      JSON.stringify(rec0?.semantics));
+    check('余弦值在合法区间 [-1,1]',
+      typeof rec0?.semantics?.cosine === 'number' && rec0.semantics.cosine >= -1 && rec0.semantics.cosine <= 1);
+  } else {
+    check('未就绪时降级为 tags-only', smd.method === 'tags-only', `method=${smd.method}`);
+  }
+  check('匹配仍然保留可解释的命中/缺失技能',
+    Array.isArray(rec0?.hitSkills) && Array.isArray(rec0?.missingSkills));
+
+  // 单组合详细解释
+  const posForMatch = (smd.recommendations || [])[0]?.positionId;
+  if (posForMatch) {
+    const one = await api(`/resumes/${resumeId}/match-position/${posForMatch}`, { token });
+    check('单组合解释接口可用', one.status === 200, `status=${one.status}`);
+  }
+
+  // 技能自动抽取：不得覆盖人工标签
+  const before = await api(`/applications/${appId}`, { token });
+  const humanBefore = before.body?.data?.skills;
+  const auto = await api(`/ml/resumes/${resumeId}/auto-skills`, { method: 'POST', token });
+  check('技能自动抽取接口可用', auto.status === 200, `status=${auto.status}`);
+  const ad = auto.body?.data || {};
+  check('抽取结果含技能列表', Array.isArray(ad.skills), JSON.stringify(ad.skills));
+  check('抽取结果带来源标注（词典/语义）',
+    Array.isArray(ad.details) && ad.details.every((x) => ['exact', 'semantic'].includes(x.source)),
+    JSON.stringify(ad.details?.slice(0, 3)));
+  const after = await api(`/applications/${appId}`, { token });
+  check('自动抽取没有覆盖人工填写的技能标签',
+    after.body?.data?.skills === humanBefore,
+    `before=${humanBefore} after=${after.body?.data?.skills}`);
+
+  // 聚类
+  const clusters = await api(`/ml/clubs/${ownerClubId}/clusters`, { token });
+  check('候选人聚类接口可用', clusters.status === 200, `status=${clusters.status}`);
+  const cd = clusters.body?.data || {};
+  check('聚类返回可用性标识', typeof cd.available === 'boolean');
+  if (cd.available && cd.clusters?.length) {
+    const totalMembers = cd.clusters.reduce((s, c) => s + c.size, 0);
+    check('聚类覆盖了全部候选人', totalMembers > 0, `members=${totalMembers}`);
+    check('每簇带技能画像', cd.clusters.every((c) => Array.isArray(c.profile)));
+    console.log(`     → k=${cd.k} silhouette=${cd.silhouette}`);
+  } else {
+    console.log(`     → 未分组：${cd.reason || '数据量不足'}（属正常，不影响其他功能）`);
+  }
+
+  /* ---------- ⑯ 清理测试数据 ---------- */
+  console.log('\n⑯ 清理测试数据');
   // 恢复被测试改动的真实社团字段
   await api(`/clubs/${ownerClubId}/standard`, { method: 'PUT', token, body: originalStandard });
   const restored = (await api(`/clubs/${ownerClubId}`)).body?.data || {};

@@ -1,26 +1,29 @@
-{
-  "name": "community-server",
-  "version": "0.1.0",
-  "private": true,
-  "description": "社团招新系统 API 服务",
-  "type": "module",
-  "main": "src/index.js",
-  "scripts": {
-    "dev": "node --watch src/index.js",
-    "start": "node src/index.js",
-    "migrate": "node scripts/check-migration.mjs",
-    "smoke": "node scripts/smoke-club-console.mjs",
-    "cleanup:smoke": "node scripts/cleanup-smoke.mjs",
-    "account:reset": "node scripts/reset-club-password.mjs",
-    "data:export": "node scripts/export-data.mjs",
-    "data:import": "node scripts/import-data.mjs"
-  },
-  "engines": {
-    "node": ">=20"
-  },
-  "dependencies": {
-    "better-sqlite3": "^13.0.3",
-    "express": "^4.21.2",
-    "multer": "^2.0.1"
-  }
+﻿{
+    "name":  "community-server",
+    "version":  "0.1.0",
+    "private":  true,
+    "description":  "社团招新系统 API 服务",
+    "type":  "module",
+    "main":  "src/index.js",
+    "scripts":  {
+                    "dev":  "node --watch src/index.js",
+                    "start":  "node src/index.js",
+                    "migrate":  "node scripts/check-migration.mjs",
+                    "smoke":  "node scripts/smoke-club-console.mjs",
+                    "cleanup:smoke":  "node scripts/cleanup-smoke.mjs",
+                    "account:reset":  "node scripts/reset-club-password.mjs",
+                    "data:export":  "node scripts/export-data.mjs",
+                    "data:import":  "node scripts/import-data.mjs",
+                    "ml:verify":  "node scripts/verify-ml.mjs",
+                    "ml:verify:http":  "node scripts/verify-ml-http.mjs"
+                },
+    "engines":  {
+                    "node":  "\u003e=20"
+                },
+    "dependencies":  {
+                         "better-sqlite3":  "^13.0.3",
+                         "express":  "^4.21.2",
+                         "multer":  "^2.0.1",
+                         "@xenova/transformers":  "^2.17.2"
+                     }
 }

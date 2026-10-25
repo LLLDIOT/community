@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as decisionService from '../services/decisionService.js';
 import { ok } from '../utils/respond.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 import {
   requireCapability,
   requireOwnClub,
@@ -54,9 +55,9 @@ router.patch('/applications/:id/decision', requireApplicationClub('application:d
 router.get(
   '/applications/:id/adjust-suggestions',
   requireApplicationClub('application:decide'),
-  (req, res) => {
-    ok(res, decisionService.suggestAdjust(req.params.id, req.account));
-  }
+  asyncHandler(async (req, res) => {
+    ok(res, await decisionService.suggestAdjust(req.params.id, req.account));
+  })
 );
 
 router.post('/applications/:id/adjust', requireApplicationClub('application:decide'), (req, res) => {

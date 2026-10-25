@@ -14,6 +14,7 @@ import { createStudentApp } from './apps/studentApp.js';
 import { migrate } from './db/connection.js';
 import { loadEnv } from './utils/env.js';
 import { ensureSeedAccounts, purgeExpiredSessions } from './services/authService.js';
+import { warmup as warmupML } from './ml/embeddingService.js';
 
 // 加载 server 上级目录的 .env（若存在），必须在读任何配置前执行
 loadEnv();
@@ -24,6 +25,10 @@ migrate();
 // 社团端账号：清掉过期会话；给还没有账号的社团播种一个初始社长账号
 purgeExpiredSessions();
 ensureSeedAccounts();
+
+// 机器学习层预热：异步加载中文嵌入模型，**不阻塞端口监听**。
+// 模型没就绪时匹配自动走规则降级，绝不让服务因为模型起不来而不可用。
+warmupML();
 
 const clubPort = Number(process.env.PORT || 3000);
 const studentPort = Number(process.env.STUDENT_PORT ?? 3001);

@@ -24,6 +24,7 @@ import matchRoutes from '../routes/matchRoutes.js';
 import authRoutes from '../routes/authRoutes.js';
 import squareRoutes from '../routes/squareRoutes.js';
 import decisionRoutes from '../routes/decisionRoutes.js';
+import mlRoutes from '../routes/mlRoutes.js';
 import { basicAuth } from '../middlewares/basicAuth.js';
 import { optionalAccount } from '../middlewares/clubAuth.js';
 import * as applicationService from '../services/applicationService.js';
@@ -77,6 +78,7 @@ export function createClubApp() {
   app.use('/api/v1', authRoutes);
   app.use('/api/v1/square', squareRoutes);
   app.use('/api/v1', decisionRoutes);
+  app.use('/api/v1/ml', mlRoutes);
 
   /* ── 业务字典 ── */
   app.get('/api/v1/dict', (req, res) => {
