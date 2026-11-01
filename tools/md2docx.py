@@ -551,9 +551,17 @@ def is_separator_row(line):
     return all(re.fullmatch(r":?-{2,}:?", c.strip()) for c in s.split("|"))
 
 
-def convert(src_path, dst_path):
+def convert(src_path, dst_path, header_text=None, page_numbers=True):
     raw = io.open(src_path, encoding="utf-8").read().replace("\r\n", "\n")
     lines = raw.split("\n")
+
+    # 页眉默认取文档第一个一级标题
+    if header_text is None:
+        for ln in lines:
+            m = re.match(r"^#\s+(.+)$", ln.strip())
+            if m:
+                header_text = m.group(1).strip()
+                break
 
     doc = Document()
     normal = doc.styles["Normal"]
@@ -568,8 +576,10 @@ def convert(src_path, dst_path):
     section.right_margin = Cm(2.3)
     section.top_margin = Cm(2.4)
     section.bottom_margin = Cm(2.2)
-    add_page_number_footer(section)
-    add_header_text(section, "机器学习层技术说明")
+    if page_numbers:
+        add_page_number_footer(section)
+    if header_text:
+        add_header_text(section, header_text)
 
     i, n = 0, len(lines)
     while i < n:
@@ -666,6 +676,15 @@ def convert(src_path, dst_path):
 
 
 if __name__ == "__main__":
-    src = sys.argv[1] if len(sys.argv) > 1 else "docs/ML_TECHNICAL.md"
-    dst = sys.argv[2] if len(sys.argv) > 2 else "docs/ML_TECHNICAL.docx"
-    print("saved:", convert(src, dst))
+    args = [a for a in sys.argv[1:]]
+    no_header = "--no-header" in args
+    no_page = "--no-pagenum" in args
+    args = [a for a in args if not a.startswith("--")]
+
+    src = args[0] if len(args) > 0 else "docs/ML_TECHNICAL.md"
+    dst = args[1] if len(args) > 1 else "docs/ML_TECHNICAL.docx"
+    print("saved:", convert(
+        src, dst,
+        header_text=None if not no_header else "",
+        page_numbers=not no_page,
+    ))
