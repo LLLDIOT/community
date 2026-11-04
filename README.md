@@ -41,6 +41,7 @@ community/
 │  └─ ML_TECHNICAL.md  # 📘 ML 层技术说明（正式文体：无类比、分节陈述、含参数依据）
 │  └─ ML_SIMPLE.md     # 📄 ML 层简化讲解（无目录，4 页 Word 版：ML_SIMPLE.docx）
 │  └─ club-console-snapshot.html  # 🖥️ 社团端单文件静态快照（双击打开，内嵌真实数据）
+│  └─ club-dashboard.html        # 📊 数据看板单文件快照（漏斗/进度/趋势/分布，图表为内联 SVG）
 ├─ server/              # Express API（M1-M2 ✅）
 │  ├─ db/migrations/    # 001~004 建库/升级脚本（004 = 社团端改造）
 │  ├─ src/routes/       # 含 authRoutes / squareRoutes / decisionRoutes
