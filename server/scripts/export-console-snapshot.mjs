@@ -62,15 +62,28 @@ if (!mlOk) {
   console.warn('模型不可用，匹配将使用规则算法');
 }
 
+/*
+ * 匹配计算分两件事：
+ *   scoreIndex —— 全量「简历×岗位」语义分数，供投递详情查用（不写入 HTML）
+ *   match      —— 每份简历只保留前 MATCH_TOP 条，供「智能匹配推荐」页渲染
+ * 若把全量都写进 HTML，72 份简历 × 28 个岗位会让文件涨到 700KB 以上。
+ */
+const MATCH_TOP = 10;
+const scoreIndex = new Map();
 const match = [];
+
 for (const r of resumes) {
   try {
-    const out = await sem.recommendPositionsForResume(r.id, { limit: 10 });
+    const out = await sem.recommendPositionsForResume(r.id, { limit: 500 });
+    for (const x of out.recommendations) {
+      scoreIndex.set(`${r.id}|${x.positionId}`, x);
+    }
     match.push({
       student_name: r.student_name,
       skills: r.skills || '',
       method: out.method,
-      recommendations: out.recommendations.map((x) => ({
+      total: out.total,
+      recommendations: out.recommendations.slice(0, MATCH_TOP).map((x) => ({
         positionTitle: x.positionTitle,
         clubName: x.clubName,
         recruitmentTitle: x.recruitmentTitle,
@@ -118,6 +131,7 @@ for (const c of clubs) {
 const st = emb.getStatus();
 const DATA = {
   generatedAt: stamp,
+  demo: /demo/i.test(process.env.DB_PATH || ''),
   ml: {
     model: st.model,
     dim: st.dim,
@@ -145,8 +159,6 @@ const DATA = {
     skills: r.skills || '', skills_auto: r.skills_auto || '',
   })),
   applications: applications.map((a) => {
-    const m = match.find((x) => x.student_name === a.student_name);
-    const rec = m ? m.recommendations.find((r) => r.positionTitle === a.position_title) : null;
     /*
      * 注意两个分数不是一回事：
      *   application.score（面试评分）是面试官打的分，可空。
@@ -155,7 +167,16 @@ const DATA = {
      */
     const requiredSkills = String(a.required_skills || '')
       .split(/[,，、;；]/).map((s) => s.trim()).filter(Boolean);
-    const hitSkills = rec ? rec.hitSkills : [];
+    /*
+     * 命中技能直接用「这份简历填写的技能」与「投递岗位的期望技能」比对，
+     * 与后端 matchSkills() 的口径一致。
+     * 不要从推荐列表里反查：推荐有数量上限，岗位多了会落空，被静默算成 0。
+     */
+    const resumeSkillSet = new Set(
+      String(a.skills || '').split(/[,，、;；]/).map((s) => s.trim().toLowerCase()).filter(Boolean)
+    );
+    const hitSkills = requiredSkills.filter((s) => resumeSkillSet.has(s.toLowerCase()));
+    const missSkills = requiredSkills.filter((s) => !resumeSkillSet.has(s.toLowerCase()));
     const matchScore = requiredSkills.length
       ? Math.round((hitSkills.length / requiredSkills.length) * 100)
       : 0;
@@ -181,7 +202,7 @@ const DATA = {
       requiredSkills,
       hitSkills,
       interviewScore: a.score != null ? a.score : null,
-      semanticScore: rec ? rec.score : null,
+      semanticScore: (scoreIndex.get(a.resume_id + '|' + a.position_id) || {}).score ?? null,
     };
   }),
   match,

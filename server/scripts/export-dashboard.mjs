@@ -86,6 +86,7 @@ const DATA = {
   generatedAt: stamp,
   days: effectiveDays,
   windowAuto,
+  demo: /demo/i.test(process.env.DB_PATH || ''),
   scope: clubId || 'all',
   core: dash.core,
   funnel: dash.funnel,

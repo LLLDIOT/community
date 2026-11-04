@@ -76,6 +76,7 @@
     <div class="meta" id="meta"></div>
   </header>
 
+  <div class="note" id="demo-note" style="display:none;background:#eaf7ee;border-color:#bfe8cf;color:#1d6b38"><b>本文件使用演示数据集导出。</b>社团、岗位、学生与投递记录均为虚构，用于界面展示，不代表真实业务数据。</div>
   <div class="note">
     <b>这是静态快照，不是运行中的系统。</b>
     数据由 <code>server/scripts/export-dashboard.mjs</code> 调用后端的 <code>getDashboard()</code> 导出，
@@ -294,6 +295,7 @@ function renderProgress() {
   document.getElementById('meta').innerHTML =
     '导出时间 ' + esc(DATA.generatedAt) + '<br>统计范围：全校（' + DATA.days + ' 天趋势窗口）';
   document.getElementById('gen').textContent = DATA.generatedAt;
+  if (DATA.demo) { var dn = document.getElementById('demo-note'); if (dn) dn.style.display = 'block'; }
   renderCards();
   renderFunnel();
   renderDist('dist-type', DATA.distributions.typeTag, TYPE_LABEL);

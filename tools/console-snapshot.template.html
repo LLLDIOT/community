@@ -126,6 +126,7 @@
       <div class="crumb" id="meta"></div>
     </header>
 
+    <div class="banner" id="demo-banner" hidden style="background:#eaf7ee;border-color:#bfe8cf;color:#1d6b38"><b>本文件使用演示数据集导出。</b>社团、学生、投递与面试结论均为虚构，用于界面展示，不代表真实业务数据。</div>
     <div class="banner">
       <b>这是静态快照，不是运行中的系统。</b>
       页面由 <code>server/scripts/export-console-snapshot.mjs</code> 从数据库导出生成，数据固定为导出时刻，所有按钮与行点击仅用于查看，不能提交或修改任何内容。
@@ -418,6 +419,7 @@ function renderClusters() {
   $('#meta').textContent = '导出时间 ' + DATA.generatedAt + '　｜　' + DATA.clubs.length + ' 个社团 · ' +
     DATA.applications.length + ' 条投递';
   $('#foot-gen').textContent = '快照 ' + DATA.generatedAt.slice(0, 10);
+  if (DATA.demo) { var dbb = document.getElementById('demo-banner'); if (dbb) dbb.hidden = false; }
   renderOverview();
   renderInterview();
   renderLibrary();
