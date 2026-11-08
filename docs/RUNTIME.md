@@ -82,12 +82,12 @@
 ```
 web/dist/
   ├── index.html + assets/   ← Vue SPA（社团端）
-  └── portal.html            ← 学生端 H5
-  └── portal-adapter.js
+  ├── student.html           ← 学生端 SPA 入口
+  └── assets/                ← 两个入口共用的构建产物
 ```
 
 - **社团端**：`express.static(dist)` + SPA fallback → 访问任何非 API 路径都返回 `index.html`，由前端路由接管
-- **学生端**：只精确返回 `portal.html` / `portal-adapter.js` / 根路径，其它一律 404
+- **学生端**：返回 `student.html` 作为 SPA 外壳，并只放出 `/assets`；前端路由由回落规则承接
 
 **为什么学生端不做 SPA fallback**：它只有一个页面，不需要前端路由。让它"什么路径都返回首页"反而会让攻击面变大、排错变难。
 
@@ -348,9 +348,9 @@ export function asyncHandler(fn) {
  ↓ json / urlencoded
  ↓ /healthz
  ↓ /api/v1 → studentRoutes（5 个接口白名单，其余 404）
- ↓ /            → portal.html
- ↓ /portal.html  → 同一个文件
- ↓ /portal-adapter.js
+ ↓ /            → student.html（SPA 外壳）
+ ↓ /portal.html  → 同一个文件（兼容旧链接）
+ ↓ /assets/*     → 构建产物（其余前缀走 SPA 回落）
  ↓ 404
  ↓ 错误中间件
 ```

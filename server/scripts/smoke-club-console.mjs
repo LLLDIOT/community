@@ -755,14 +755,25 @@ const cleanup = { applicationIds: [], resumeIds: [], accountIds: [] };
   const studentRoot = await rawFetch(`${STUDENT}/`);
   check('学生端根路径就是投递页（不是某个子路径）', studentRoot.status === 200,
     `status=${studentRoot.status}`);
-  check('学生端首页引用适配层', studentRoot.text.includes('portal-adapter.js'));
-  check('学生端首页不含 Vue SPA 挂载点（两站未混在一起）',
-    !studentRoot.text.includes('<div id="app">'),
-    '意外出现了 SPA 挂载点');
+  // 学生端已改为与社团端相同的 SPA 交互模式（独立入口 student.html）
+  check('学生端首页是独立 SPA 入口', studentRoot.text.includes('<div id="app">'),
+    '未找到 SPA 挂载点');
+  check('学生端首页引用自己的入口脚本（不与社团端混用）',
+    /assets\/student-[^"]+\.js/.test(studentRoot.text),
+    '未找到 student 入口脚本');
 
-  const adapter = await rawFetch(`${STUDENT}/portal-adapter.js`);
-  check('学生端适配层可访问', adapter.status === 200 && adapter.text.includes('PortalAPI'),
-    `status=${adapter.status}`);
+  // 前端路由必须由 SPA 回落承接，刷新子路径不能 404
+  for (const p of ['/clubs', '/progress', '/guide']) {
+    const r = await rawFetch(`${STUDENT}${p}`);
+    check(`学生端前端路由 ${p} 可直达（SPA 回落）`, r.status === 200 && r.text.includes('<div id="app">'),
+      `status=${r.status}`);
+  }
+
+  // 学生端不得暴露社团端的产物
+  const clubShell = await rawFetch(`${STUDENT}/index.html`);
+  check('学生端不提供社团端 index.html',
+    !clubShell.text.includes('src/main.js') && !clubShell.text.includes('assets/index-'),
+    '暴露了社团端 shell');
 
   // 学生端白名单接口
   const sClubs = await rawFetch(`${STUDENT}/api/v1/clubs?page=1&pageSize=100`);

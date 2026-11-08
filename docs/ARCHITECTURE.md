@@ -16,7 +16,7 @@
 
 | 角色 | 入口 | 能力范围 |
 |---|---|---|
-| 学生 | `/portal.html`（手机风格 H5） | 浏览社团、选择岗位、按模板填写简历、真实投递、查看投递进度 |
+| 学生 | `student.html`（独立 SPA） | 浏览社团、选择岗位、按模板填写简历、真实投递、查看投递进度 |
 | 社团管理员 | `/`（管理端 SPA） | 维护社团资料、招新批次与岗位；简历库归档/筛选/状态流转/评分/导出；智能匹配；数据看板 |
 | 访客 | 同管理端（当前开放模式） | 只读浏览，含招新广场（看得到各社团招新情况与投递人数，但改不了别人数据） |
 
@@ -70,7 +70,7 @@ flowchart TD
 ```mermaid
 flowchart TB
     subgraph clients["客户端（浏览器）"]
-        P["📱 学生端 H5（手机风格）<br/>web/public/portal.html<br/>+ portal-adapter.js 适配层"]
+        P["📱 学生端 SPA<br/>web/student.html<br/>+ src/student/（layout / router / views）"]
         M["💻 管理端 SPA（PC）<br/>web/src/<br/>Vue3 + Element Plus + ECharts"]
     end
 
@@ -167,12 +167,12 @@ server/src/
 sequenceDiagram
     autonumber
     actor S as 学生
-    participant P as 学生端 portal.html
-    participant AD as 适配层 portal-adapter.js
+    participant P as 学生端 student.html（SPA）
+    participant AD as api.js / templates.js
     participant API as 后端 API
     participant DB as SQLite
 
-    S->>P: 打开 /portal.html
+    S->>P: 打开 /（student.html）
     P->>AD: listClubs()
     AD->>API: GET /clubs
     API->>DB: SELECT * FROM club
