@@ -89,7 +89,39 @@ docker compose up -d --build
 ```
 详见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 
-### ☁️ 部署到公网（推荐：香港轻量服务器）
+### 🏠 当前部署方式：仅本机
+
+本项目目前**只在本机运行，没有发布到公网**。
+
+| | 🖥️ 社团端（管理台） | 📱 学生端（投递页） |
+|---|---|---|
+| 地址 | `http://localhost:3000` | `http://localhost:3001` |
+| 给谁用 | 你 + 社团干部 | 同机/同局域网使用 |
+| 要密码吗 | ✅ 要（全站密码 + 社团账号） | ❌ 不需要 |
+| 接口 | 完整 API | 只有 5 个白名单接口，且不暴露简历附件 |
+
+**开机自启**：计划任务 `Community-Server` 会在登录时拉起服务（两个端口一起启动）。
+
+**局域网访问**：同网段的其它设备可用 `http://<本机IP>:3001` 打开学生端，
+`http://<本机IP>:3000` 打开社团端（需全站密码）。
+
+**已关闭的部分**（需要时才恢复）：
+
+- `cpolar` 内网穿透进程：已停止
+- 开机自启项：已从 `community-cpolar.cmd` 改名为 `community-cpolar.cmd.disabled`
+  位置在 `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\`
+
+重新发布到公网的步骤见 [docs/DEPLOY.md](docs/DEPLOY.md)，或直接执行：
+
+```powershell
+# 恢复自启并立即启动隧道
+cd D:\GitHub库\社团
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup-tunnel.ps1
+```
+
+> 注意：cpolar 免费版的域名每次重连都会变，公网地址不是固定的。
+
+### ☁️ 如需部署到公网（备用方案）
 
 系统对外是**两个独立网站、共用同一份数据**：
 

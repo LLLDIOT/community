@@ -2,16 +2,53 @@
 
 三种运行方式，按场景选择：
 
-## 0. 当前部署状态（本机 Windows）
+## 0. 当前部署状态（仅本机，未发布到公网）
 
-- 已注册开机自启计划任务（登录 Windows 自动运行）：
-  - `Community-Server` —— 后端 node 服务（:3000）
-  - `Community-Cpolar` —— cpolar 公网隧道
-- 注册命令见 `scripts/install-services.ps1`（node 部分）；
+当前是**本机部署模式**，服务只在本机运行，没有对外发布。
+
+| 项目 | 状态 |
+|---|---|
+| 社团端 | `http://localhost:3000`（需全站密码 + 社团账号） |
+| 学生端 | `http://localhost:3001`（无需密码，独立 SPA） |
+| 开机自启 | 计划任务 `Community-Server`，登录 Windows 后自动启动两个端口 |
+| cpolar 隧道 | **已停止** |
+| 隧道自启项 | **已禁用**（`community-cpolar.cmd` → `community-cpolar.cmd.disabled`） |
+
+### 切换部署模式
+
+用 `scripts/deploy-mode.ps1` 切换，不要手工改这些状态：
+
+```powershell
+# 切到本机部署：停隧道 + 禁用自启（服务继续在本机运行）
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-mode.ps1 -Mode local
+
+# 切到公网部署：恢复自启 + 重建隧道 + 打印新的公网地址
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-mode.ps1 -Mode public
+
+# 只看当前状态
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-mode.ps1 -Mode status
+```
+
+### 局域网访问
+
+本机部署下，同一网段的其它设备可直接访问（不需要隧道）：
+
+- 学生端：`http://<本机局域网IP>:3001`
+- 社团端：`http://<本机局域网IP>:3000`（仍需全站密码）
+
+查本机 IP：`ipconfig | Select-String "IPv4"`。
+若手机打不开，检查 Windows 防火墙是否放行 3000 / 3001 端口。
+
+### 公网部署的历史说明（供需要时参考）
+
+以下为切到公网模式后的行为，当前**未启用**：
+
+- `Community-Cpolar` —— cpolar 公网隧道
+  注册命令见 `scripts/install-services.ps1`（node 部分）；
   cpolar 隧道配置位于 `~/.cpolar/cpolar.yml`（community → :3000）。
 - 公网访问受 **HTTP Basic Auth** 保护，凭据在 `server/.env`
   （`BASIC_AUTH_USER` / `BASIC_AUTH_PASS`），该文件不入库。
-  用 `BASIC_AUTH_DISABLE=1` 可关闭密码（仅建议本机使用）。
+  用 `BASIC_AUTH_DISABLE=1` 可关闭密码（**仅本机使用，不要带密码裸奔上公网**）。
 - 免费版 cpolar 公网域名是**随机的**，重启隧道后变化；
   查看当前地址：`Get-Content "$env:USERPROFILE\.cpolar\run.log*" | Select-String "established"`
   固定域名需在 cpolar 控制台购买保留域名。
